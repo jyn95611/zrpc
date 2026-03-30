@@ -37,7 +37,7 @@ Testing/
 !.vscode/settings.json
 *.code-workspace
 *.user
-.ccache/
+.cache/
 
 # ======================================
 # Copilot / Chat / 指令文件
