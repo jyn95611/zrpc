@@ -36,6 +36,8 @@ Testing/
 !.vscode/c_cpp_properties.json
 !.vscode/settings.json
 *.code-workspace
+*.ccache
+*.user
 
 # ======================================
 # Copilot / Chat / 指令文件
