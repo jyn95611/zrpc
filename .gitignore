@@ -1,0 +1,44 @@
+# ======================================
+# CMake 构建目录
+# ======================================
+build/
+cmake-build-*/
+out/
+install/
+*.cmake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+
+# ======================================
+# C++ 编译产物
+# ======================================
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.so.*
+*.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.log
+
+# ======================================
+# VS Code 相关
+# ======================================
+.vscode/
+!.vscode/extensions.json
+!.vscode/c_cpp_properties.json
+!.vscode/settings.json
+*.code-workspace
+
+# ======================================
+# Copilot / Chat / 指令文件
+# ======================================
+# .github/copilot/chat-history.json
+# *.instructions.md.backup
