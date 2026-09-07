@@ -1,8 +1,12 @@
 #pragma once
 
+#include <condition_variable>
+#include <cstdint>
 #include <iostream>
 #include <mutex>
-#include <condition_variable>
+#include <string>
+
+#include "zrpc_global.h"
 
 namespace zrpc {
 enum class StatusCode
@@ -26,9 +30,9 @@ enum class ApplicationError
     METHOD_NOT_IMPLEMENTED,
 };
 
-class Rpc
+class ZRPC_EXPORT Rpc
 {
-public:  
+public:
     bool ok() { return status() == StatusCode::OK; }
 
     StatusCode status() const { return _statusCode; }

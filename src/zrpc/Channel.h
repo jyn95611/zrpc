@@ -1,13 +1,16 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <string>
 
 #include "Rpc.h"
+#include "zrpc_global.h"
 
 namespace zrpc {
 class Context;
 class ChannelPrivate;
-class Channel final
+class ZRPC_EXPORT Channel final
 {
 public:
     Channel(const std::shared_ptr<Context> &ctx);
@@ -23,7 +26,7 @@ private:
 };
 
 class StubPrivate;
-class Stub final
+class ZRPC_EXPORT Stub final
 {
 public:
     Stub(const std::shared_ptr<Channel> &channel);

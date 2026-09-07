@@ -158,9 +158,9 @@ void client_func4()
 {
     auto context = std::make_shared<zrpc::Context>();
 
-//    const std::string serverAddr = "tcp://localhost:9981";
+   const std::string serverAddr = "tcp://localhost:9981";
 //    const std::string serverAddr = "tcp://192.168.1.102:9981";
-    const std::string serverAddr = "ipc://9985.sock";
+    // const std::string serverAddr = "ipc://9985.sock";
     auto channel = std::make_shared<zrpc::Channel>(context);
     channel->connect(serverAddr);
 

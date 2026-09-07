@@ -1,8 +1,10 @@
 #pragma once
 
+#include "zrpc_global.h"
+
 namespace zrpc {
 class ContextPrivate;
-class Context final
+class ZRPC_EXPORT Context final
 {
 public:
     Context(int ioThrNum = 4, int workerThrNum = 8);

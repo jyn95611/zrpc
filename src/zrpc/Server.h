@@ -1,11 +1,14 @@
 #pragma once
 
+#include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
-#include <memory>
+
+#include "zrpc_global.h"
 
 namespace zrpc {
-class Service
+class ZRPC_EXPORT Service
 {
 public:
     Service(const std::string &name) : _name(name) {}
@@ -24,7 +27,7 @@ private:
 
 class Context;
 class ServerPrivate;
-class Server final
+class ZRPC_EXPORT Server final
 {
 public:
     Server(const std::shared_ptr<Context> &ctx);

@@ -1,15 +1,16 @@
-#ifndef PUBSUB_H
-#define PUBSUB_H
+#pragma once
 
-#include <memory>
-#include <vector>
 #include <functional>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "Context.h"
+#include "zrpc_global.h"
 
 namespace zrpc {
 class PublisherPrivate;
-class Publisher final
+class ZRPC_EXPORT Publisher final
 {
 public:
     Publisher(const std::shared_ptr<Context> &ctx);
@@ -23,7 +24,7 @@ private:
 };
 
 class SubscriberPrivate;
-class Subscriber final
+class ZRPC_EXPORT Subscriber final
 {
 public:
     Subscriber(const std::vector<std::string> &topics, const std::shared_ptr<Context> &ctx);
@@ -37,5 +38,3 @@ private:
     SubscriberPrivate *_d{};
 };
 }
-
-#endif // PUBSUB_H
