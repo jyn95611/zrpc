@@ -14,6 +14,7 @@ public:
     void removeSocket(zmq::socket_t *socket);
 
     void runCallbackAt(uint64_t time, const Callback &func);
+    void runCallbackAfter(uint64_t time, const Callback &func);
     void postCallback(const Callback &func);
 
     int loop();

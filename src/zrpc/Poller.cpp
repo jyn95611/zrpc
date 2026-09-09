@@ -31,6 +31,11 @@ void Poller::runCallbackAt(uint64_t time, const Callback &func)
     _timerCbs[time].emplace_back(func);
 }
 
+void Poller::runCallbackAfter(uint64_t time, const Callback &func)
+{
+    _timerCbs[zclock_time() + time].emplace_back(func);
+}
+
 void Poller::postCallback(const Callback &func)
 {
     _postCbs.emplace_back(func);

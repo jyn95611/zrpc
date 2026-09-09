@@ -389,7 +389,7 @@ void ContextPrivate::onSendRequestEvent(SendRequestEvent *event)
     _clientFuncs.emplace(requestId, event->clientFunc);
 
     if (event->timeoutMs > 0) {
-        _poller->runCallbackAt(event->timeoutMs, [this, requestId]{
+        _poller->runCallbackAfter(event->timeoutMs, [this, requestId]{
             handleClientRequestTimeout(requestId);
         });
     }
@@ -464,9 +464,7 @@ void ContextPrivate::onAddPubEvent(AddPubEvent *event, const std::string &router
 void ContextPrivate::onRemovePubEvent(RemovePubEvent *event)
 {
     _poller->postCallback([this, socketId = event->socketId]{
-        auto socket = std::move(_pubSockets[socketId]);
         _pubSockets.erase(socketId);
-        _poller->removeSocket(socket.get());
     });
 }
 
