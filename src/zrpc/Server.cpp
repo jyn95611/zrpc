@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "Call.h"
+#include "ContextAccess.h"
 #include "ContextPrivate.h"
 #include "Context.h"
 #include "Message.h"
@@ -28,7 +29,7 @@ public:
     ~ServerPrivate()
     {
         if (socketId > 0)
-            ctx->d()->removeServer(socketId);
+            detail::ContextAccess::get(ctx)->removeServer(socketId);
     }
 
     void processRequest(zmq::message_t &requestMsg, zmq::message_t &replyMsg)
@@ -76,14 +77,14 @@ Server::~Server()
     delete _d;
 }
 
-void Server::registService(Service *service)
+void Server::registerService(Service *service)
 {
     _d->services.insert_or_assign(service->name(), service);
 }
 
 void Server::bind(const std::string &addr)
 {
-    _d->socketId = _d->ctx->d()->addServer(addr, [this](zmq::message_t &requestMsg, zmq::message_t &replyMsg){
+    _d->socketId = detail::ContextAccess::get(_d->ctx)->addServer(addr, [this](zmq::message_t &requestMsg, zmq::message_t &replyMsg){
         _d->processRequest(requestMsg, replyMsg);
     });
 }

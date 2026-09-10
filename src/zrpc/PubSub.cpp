@@ -3,8 +3,10 @@
 
 #include "utils.h"
 #include "Message.h"
-#include "Context.h"
+#include "Event.h"
+#include "ContextAccess.h"
 #include "ContextPrivate.h"
+#include "Context.h"
 #include "PubSub.h"
 
 namespace zrpc {
@@ -12,13 +14,13 @@ class PublisherPrivate
 {
 public:
     PublisherPrivate(const std::shared_ptr<Context> &actx)
-        : ctx(actx), dealer(actx->d()->createFrontendSocket())
+        : ctx(actx), dealer(detail::ContextAccess::get(actx)->createFrontendSocket())
     {
     }
     ~PublisherPrivate()
     {
         if (socketId > 0)
-            ctx->d()->removePub(socketId);
+            detail::ContextAccess::get(ctx)->removePub(socketId);
 
         if (dealer)
             dealer->close();
@@ -57,7 +59,7 @@ Publisher::~Publisher()
 
 void Publisher::bind(const std::string &addr)
 {
-    _d->socketId = _d->ctx->d()->addPub(addr);
+    _d->socketId = detail::ContextAccess::get(_d->ctx)->addPub(addr);
 }
 
 void Publisher::pubTopic(const std::string &topic, std::string &&data)
@@ -75,7 +77,7 @@ public:
     ~SubscriberPrivate()
     {
         if (socketId > 0)
-            ctx->d()->removeSub(socketId);
+            detail::ContextAccess::get(ctx)->removeSub(socketId);
     }
 
     void topicCallback(zmq::message_t &topicMsg)
@@ -115,7 +117,7 @@ void Subscriber::setCallback(const TopicCallback &cb)
 
 void Subscriber::connect(const std::string &addr)
 {
-    const auto socketId = _d->ctx->d()->addSub(addr, [this](zmq::message_t &topicMsg){
+    const auto socketId = detail::ContextAccess::get(_d->ctx)->addSub(addr, [this](zmq::message_t &topicMsg){
         _d->topicCallback(topicMsg);
     });
     _d->socketId = socketId;

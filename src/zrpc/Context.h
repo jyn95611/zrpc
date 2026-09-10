@@ -4,6 +4,11 @@
 
 namespace zrpc {
 class ContextPrivate;
+
+namespace detail {
+struct ContextAccess;
+}
+
 class ZRPC_EXPORT Context final
 {
 public:
@@ -14,21 +19,8 @@ public:
     void wait();
 
 private:
-    friend class Server;
-    friend class ServerPrivate;
-    friend class Channel;
-    friend class ChannelPrivate;
-    friend class Stub;
-    friend class StubPrivate;
-    friend class Publisher;
-    friend class PublisherPrivate;
-    friend class Subscriber;
-    friend class SubscriberPrivate;
+    friend struct detail::ContextAccess;
 
-private:
-    ContextPrivate *d() { return _d; }
-
-private:
     ContextPrivate *_d = nullptr;
 };
 }

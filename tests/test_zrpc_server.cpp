@@ -90,8 +90,8 @@ void server_func()
     std::string serverAddr = "tcp://localhost:9981";
 
     zrpc::Server server(context);
-    server.registService(&service1);
-    server.registService(&service2);
+    server.registerService(&service1);
+    server.registerService(&service2);
     server.bind(serverAddr);
 
     std::this_thread::sleep_for(std::chrono::seconds(100));
@@ -109,11 +109,11 @@ void server_func2()
     std::string serverAddr2 = "tcp://localhost:9982";
 
     zrpc::Server server1(context);
-    server1.registService(&service1);
+    server1.registerService(&service1);
     server1.bind(serverAddr1);
 
     zrpc::Server server2(context);
-    server2.registService(&service2);
+    server2.registerService(&service2);
     server2.bind(serverAddr2);
 
     std::this_thread::sleep_for(std::chrono::seconds(100));
@@ -130,7 +130,7 @@ void server_func3()
     // const std::string serverAddr = "ipc://9985.sock";
 
     zrpc::Server server1(context);
-    server1.registService(&service);
+    server1.registerService(&service);
     server1.bind(serverAddr);
 
     std::this_thread::sleep_for(std::chrono::seconds(100));

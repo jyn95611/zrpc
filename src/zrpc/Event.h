@@ -40,10 +40,8 @@ struct EventTemplate : public Event
 
 enum class RpcRequestStatus
 {
-    NACTIVE = 0,
-    ACTIVE = 1,
-    DONE = 2,
-    DEADLINE_EXCEEDED = 3,
+    Done = 0,
+    DeadlineExceeded = 1,
 };
 
 using ClientFunc = std::function<void(RpcRequestStatus, zmq::message_t&)>;
@@ -65,7 +63,7 @@ struct DisconnectEvent : public EventTemplate<EventType::Disconnect>
 
 struct SendRequestEvent : public EventTemplate<EventType::SendRequest>
 {
-    uint64_t clinetSocketId;
+    uint64_t clientSocketId;
     int64_t timeoutMs{-1};
     ClientFunc clientFunc;
     zmq::message_t requestMsg;

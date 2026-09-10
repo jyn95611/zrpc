@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "ContextAccess.h"
 #include "ContextPrivate.h"
 #include "Context.h"
 #include "Message.h"
@@ -13,13 +14,13 @@ public:
     ~ChannelPrivate()
     {
         if (socketId > 0) {
-            ctx->d()->removeClient(socketId);
+            detail::ContextAccess::get(ctx)->removeClient(socketId);
         }
     }
 
     void connect(const std::string &addr)
     {
-        socketId = ctx->d()->addClient(addr);
+        socketId = detail::ContextAccess::get(ctx)->addClient(addr);
     }
 
     std::shared_ptr<Context> ctx;
@@ -48,11 +49,11 @@ uint64_t Channel::socketId() const { return _d->socketId; }
 namespace {
 CallResult buildCallResult(RpcRequestStatus status, zmq::message_t &replyMsg)
 {
-    if (status == RpcRequestStatus::DEADLINE_EXCEEDED) {
+    if (status == RpcRequestStatus::DeadlineExceeded) {
         return {ErrorCode::Timeout, "timeout", {}};
     }
 
-    if (status != RpcRequestStatus::DONE) {
+    if (status != RpcRequestStatus::Done) {
         return {ErrorCode::InvalidMessage, "invalid request status", {}};
     }
 
@@ -73,7 +74,7 @@ class StubPrivate
 {
 public:
     StubPrivate(const std::shared_ptr<Channel> &achannel)
-        : channel(achannel), dealer(channel->context()->d()->createFrontendSocket())
+        : channel(achannel), dealer(detail::ContextAccess::get(channel->context())->createFrontendSocket())
     {
     }
     ~StubPrivate()
@@ -100,7 +101,7 @@ public:
         _currentCall = handle;
 
         auto *event = new SendRequestEvent;
-        event->clinetSocketId = channel->socketId();
+        event->clientSocketId = channel->socketId();
         event->timeoutMs = opts.timeoutMs;
         event->requestMsg = rpcRequest.serialize();
         event->clientFunc = [handle, onComplete = std::move(onComplete), this](

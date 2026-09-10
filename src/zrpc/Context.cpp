@@ -1,10 +1,17 @@
 #include <iostream>
 
 #include "utils.h"
+#include "ContextAccess.h"
 #include "ContextPrivate.h"
 #include "Context.h"
 
 namespace zrpc {
+namespace detail {
+ContextPrivate *ContextAccess::get(Context *ctx)
+{
+    return ctx->_d;
+}
+}
 ContextPrivate::ContextPrivate(int ioThrNum, int workerThrNum)
     : _ctx(ioThrNum)
 {
@@ -296,7 +303,7 @@ void ContextPrivate::handleClientSocket(uint64_t socketId)
         return;
 
     auto *event = new ProcessReplyEvent;
-    event->status = RpcRequestStatus::DONE;
+    event->status = RpcRequestStatus::Done;
     event->clientFunc = clientFuncIter->second;
     event->replyMsg = reader.readMessage();
     sendWorkerEvent(event);
@@ -310,7 +317,7 @@ void ContextPrivate::handleClientRequestTimeout(uint64_t requestId)
         return;
 
     auto *event = new ProcessReplyEvent;
-    event->status = RpcRequestStatus::DEADLINE_EXCEEDED;
+    event->status = RpcRequestStatus::DeadlineExceeded;
     event->clientFunc = clientFuncIter->second;
     sendWorkerEvent(event);
     _clientFuncs.erase(clientFuncIter);
@@ -394,7 +401,7 @@ void ContextPrivate::onSendRequestEvent(SendRequestEvent *event)
         });
     }
 
-    auto &clientSocket = _clientSockets[event->clinetSocketId];
+    auto &clientSocket = _clientSockets[event->clientSocketId];
     DealerWriter writer(*clientSocket);
     writer.write(requestId);
     writer.writeMessage(event->requestMsg, zmq::send_flags::none);

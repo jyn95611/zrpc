@@ -33,7 +33,7 @@ public:
     Server(const std::shared_ptr<Context> &ctx);
     ~Server();
 
-    void registService(Service *service);
+    void registerService(Service *service);
     void bind(const std::string &addr);
 
 private:
