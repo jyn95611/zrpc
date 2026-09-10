@@ -47,7 +47,7 @@ set(ZRPC_HEADERS
     Context.h
     Server.h
     Channel.h
-    Rpc.h
+    Call.h
     PubSub.h)
 foreach(header IN LISTS ZRPC_HEADERS)
     list(APPEND ZRPC_HEADER_FILES ${CMAKE_CURRENT_SOURCE_DIR}/${header})

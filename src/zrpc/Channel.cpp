@@ -2,6 +2,7 @@
 #include "ContextPrivate.h"
 #include "Context.h"
 #include "Message.h"
+#include "Event.h"
 #include "Channel.h"
 
 namespace zrpc {
@@ -44,6 +45,30 @@ std::shared_ptr<Context> Channel::context() const { return _d->ctx; }
 
 uint64_t Channel::socketId() const { return _d->socketId; }
 
+namespace {
+CallResult buildCallResult(RpcRequestStatus status, zmq::message_t &replyMsg)
+{
+    if (status == RpcRequestStatus::DEADLINE_EXCEEDED) {
+        return {ErrorCode::Timeout, "timeout", {}};
+    }
+
+    if (status != RpcRequestStatus::DONE) {
+        return {ErrorCode::InvalidMessage, "invalid request status", {}};
+    }
+
+    RpcReply rpcReply;
+    if (!rpcReply.deserialize(replyMsg)) {
+        return {ErrorCode::InvalidMessage, "", {}};
+    }
+
+    if (rpcReply.errorCode != 0) {
+        return {static_cast<ErrorCode>(rpcReply.errorCode), rpcReply.errorMsg, {}};
+    }
+
+    return {ErrorCode::Ok, {}, std::move(rpcReply.data)};
+}
+}
+
 class StubPrivate
 {
 public:
@@ -56,8 +81,45 @@ public:
         dealer->close();
     }
 
+    std::shared_ptr<CallHandle> call(const std::string &serviceName,
+                                     const std::string &methodName,
+                                     std::string request,
+                                     CallOptions opts,
+                                     CompletionCallback onComplete)
+    {
+        if (_currentCall && !_currentCall->ready()) {
+            return nullptr;
+        }
+
+        RpcRequest rpcRequest;
+        rpcRequest.serviceName = serviceName;
+        rpcRequest.methodName = methodName;
+        rpcRequest.data = std::move(request);
+
+        auto handle = std::make_shared<CallHandle>();
+        _currentCall = handle;
+
+        auto *event = new SendRequestEvent;
+        event->clinetSocketId = channel->socketId();
+        event->timeoutMs = opts.timeoutMs;
+        event->requestMsg = rpcRequest.serialize();
+        event->clientFunc = [handle, onComplete = std::move(onComplete), this](
+                                RpcRequestStatus status, zmq::message_t &replyMsg) {
+            CallResult result = buildCallResult(status, replyMsg);
+            handle->complete(result);
+            if (onComplete) {
+                onComplete(result);
+            }
+            _currentCall.reset();
+        };
+
+        DealerWriter(*dealer).writePtr(event, zmq::send_flags::none);
+        return handle;
+    }
+
     std::shared_ptr<Channel> channel;
     std::unique_ptr<zmq::socket_t> dealer;
+    std::shared_ptr<CallHandle> _currentCall;
 };
 
 Stub::Stub(const std::shared_ptr<Channel> &channel)
@@ -70,66 +132,22 @@ Stub::~Stub()
     delete _d;
 }
 
-namespace {
-struct RpcRequestContext
+CallResult Stub::callMethod(const std::string &serviceName, const std::string &methodName,
+                            const std::string &request, CallOptions opts)
 {
-    Rpc *rpc;
-    std::string *reply;
-};
-
-void processReply(const RpcRequestContext &rpcRequestContext, RpcRequestStatus status,
-                  zmq::message_t &replyMsg)
-{
-    switch (status) {
-    case RpcRequestStatus::DEADLINE_EXCEEDED:
-        rpcRequestContext.rpc->setStatus(StatusCode::DEADLINE_EXCEEDED);
-        break;
-    case RpcRequestStatus::DONE:
-    {
-        RpcReply rpcReply;
-        if (!rpcReply.deserialize(replyMsg)) {
-            rpcRequestContext.rpc->setError(ApplicationError::INVALID_MESSAGE, "");
-            break;
-        }
-
-        if (rpcReply.errorCode != 0) {
-            rpcRequestContext.rpc->setError(ApplicationError(rpcReply.errorCode), rpcReply.errorMsg);
-            break;
-        }
-
-        rpcRequestContext.rpc->setStatus(StatusCode::OK);
-        *rpcRequestContext.reply = rpcReply.data;
+    auto handle = _d->call(serviceName, methodName, request, opts, {});
+    if (!handle) {
+        return {ErrorCode::CallInProcess, "call in progress", {}};
     }
-        break;
-    case RpcRequestStatus::NACTIVE:
-    case RpcRequestStatus::ACTIVE:
-    default:
-        break;
-    }
-
-    rpcRequestContext.rpc->signal();
-}
+    return handle->get();
 }
 
-void Stub::callMethod(const std::string &serviceName, const std::string &methodName,
-                std::string &request, std::string &reply, Rpc *rpc)
-{   
-    RpcRequest rpcRequest;
-    rpcRequest.serviceName = serviceName;
-    rpcRequest.methodName = methodName;
-    rpcRequest.data = request;
-    auto requestMsg = rpcRequest.serialize();
-
-    RpcRequestContext rpcRequestContext {rpc, &reply};
-
-    auto *event = new SendRequestEvent;
-    event->clinetSocketId =  _d->channel->socketId();
-    event->clientFunc = [rpcRequestContext](RpcRequestStatus status,
-                         zmq::message_t &replyMsg){
-        processReply(rpcRequestContext, status, replyMsg);
-    };
-    event->timeoutMs = rpc->timeout();
-    event->requestMsg = std::move(requestMsg);
-    DealerWriter(*_d->dealer).writePtr(event, zmq::send_flags::none);
+std::shared_ptr<CallHandle> Stub::callMethodAsync(const std::string &serviceName,
+                                                  const std::string &methodName,
+                                                  std::string request,
+                                                  CallOptions opts,
+                                                  CompletionCallback onComplete)
+{
+    return _d->call(serviceName, methodName, std::move(request), opts, std::move(onComplete));
 }
 }

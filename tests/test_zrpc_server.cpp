@@ -141,9 +141,9 @@ int main(int argc, char *argv[])
 {
     std::cout << "zrpc server start." << std::endl;
 
-//    server_func();
+   server_func();
 //    server_func2();
-    server_func3();
+    // server_func3();
 
     std::cout << "zrpc server exit." << std::endl;
     return 0;

@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "Rpc.h"
+#include "Call.h"
 #include "ContextPrivate.h"
 #include "Context.h"
 #include "Message.h"
@@ -37,7 +37,7 @@ public:
 
         RpcRequest rpcRequest;
         if (!rpcRequest.deserialize(requestMsg)) {
-            rpcReply.errorCode = int(ApplicationError::INVALID_MESSAGE);
+            rpcReply.errorCode = static_cast<int>(ErrorCode::InvalidMessage);
             replyMsg = std::move(rpcReply.serialize());
             return;
         }
@@ -51,11 +51,11 @@ public:
             if (method) {
                 method(rpcRequest.data, rpcReply.data);
             } else {
-                rpcReply.errorCode = int(ApplicationError::NO_SUCH_METHOD);
+                rpcReply.errorCode = static_cast<int>(ErrorCode::NoSuchMethod);
                 rpcReply.errorMsg = "No such method.";
             }
         } else {
-            rpcReply.errorCode = int(ApplicationError::NO_SUCH_SERVICE);
+            rpcReply.errorCode = static_cast<int>(ErrorCode::NoSuchService);
             rpcReply.errorMsg = "No such service.";
         }
         replyMsg = std::move(rpcReply.serialize());

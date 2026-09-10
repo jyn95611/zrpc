@@ -18,6 +18,15 @@ set(ZRPC_CONFIG_DIR $<IF:$<CONFIG:Debug>,debug,release>)
 set(CMAKE_INSTALL_LIBRARY lib/${ZRPC_CONFIG_DIR})
 set(CMAKE_INSTALL_BINARY bin/${ZRPC_CONFIG_DIR})
 
+# Binaries install to bin/{debug,release}; libraries to lib/{debug,release}.
+# Shared libs use @rpath/$ORIGIN, so installed binaries must record that path.
+if(APPLE)
+    set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../../lib/${ZRPC_CONFIG_DIR}")
+elseif(UNIX)
+    set(CMAKE_INSTALL_RPATH "\$ORIGIN;\$ORIGIN/../../lib/${ZRPC_CONFIG_DIR}")
+endif()
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
 set(ZRPC_SRC_DIR ${CMAKE_SOURCE_DIR}/src)
 
 add_subdirectory(src/zrpc)

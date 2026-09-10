@@ -34,7 +34,7 @@ void client_func()
 
     std::string serverAddr = "tcp://localhost:9981";
 
-    auto channel = std::make_shared<zrpc::Channel>(context);    
+    auto channel = std::make_shared<zrpc::Channel>(context);
     channel->connect(serverAddr);
 
     zrpc::Stub stub1(channel);
@@ -45,7 +45,6 @@ void client_func()
         std::string serviceName;
         std::string methodName;
         std::string request = "World" + std::to_string(i);
-        std::string reply;        
         if (i % 2 == 0) {
             serviceName = "GreeterService1";
             methodName = "sayHello";
@@ -54,19 +53,16 @@ void client_func()
             methodName = "sayHi";
         }
 
-        zrpc::Rpc rpc;                        
-        stub1.callMethod(serviceName, methodName, request, reply, &rpc);
-        rpc.wait();
+        auto result = stub1.callMethod(serviceName, methodName, request);
 
-        if (rpc.ok()) {
-            std::cout << "Client recv: " << reply << std::endl;
+        if (result.ok()) {
+            std::cout << "Client recv: " << result.reply << std::endl;
         } else {
-            std::cout << "Client recv error: " << int(rpc.error()) << std::endl;
-            std::cout << "Client recv error message: " << rpc.errorMessage() << std::endl;
+            std::cout << "Client recv error: " << static_cast<int>(result.code) << std::endl;
+            std::cout << "Client recv error message: " << result.message << std::endl;
         }
     }
 
-//    std::this_thread::sleep_for(std::chrono::seconds(100));
     std::cout << "client func to exit." << std::endl;
 }
 
@@ -83,7 +79,7 @@ void client_func2()
     channel2->connect(serverAddr2);
 
     zrpc::Stub stub1(channel1);
-    zrpc::Stub stub2(channel2);        
+    zrpc::Stub stub2(channel2);
 
     for (int i = 0; i < 10; ++i) {
         std::cout << "===================== " << i << std::endl;
@@ -91,7 +87,6 @@ void client_func2()
         std::string serviceName;
         std::string methodName;
         std::string request = "World" + std::to_string(i);
-        std::string reply;
         zrpc::Stub *stub = nullptr;
         if (i % 2 == 0) {
             serviceName = "GreeterService1";
@@ -103,15 +98,13 @@ void client_func2()
             stub = &stub2;
         }
 
-        zrpc::Rpc rpc;
-        stub->callMethod(serviceName, methodName, request, reply, &rpc);
-        rpc.wait();
+        auto result = stub->callMethod(serviceName, methodName, request);
 
-        if (rpc.ok()) {
-            std::cout << "Client recv: " << reply << std::endl;
+        if (result.ok()) {
+            std::cout << "Client recv: " << result.reply << std::endl;
         } else {
-            std::cout << "Client recv error: " << int(rpc.error()) << std::endl;
-            std::cout << "Client recv error message: " << rpc.errorMessage() << std::endl;
+            std::cout << "Client recv error: " << static_cast<int>(result.code) << std::endl;
+            std::cout << "Client recv error message: " << result.message << std::endl;
         }
     }
 
@@ -124,7 +117,6 @@ void client_func3()
     auto context = std::make_shared<zrpc::Context>();
 
     const std::string serverAddr = "tcp://localhost:9981";
-//    const std::string serverAddr = "ipc://uds.9981";
     auto channel = std::make_shared<zrpc::Channel>(context);
     channel->connect(serverAddr);
 
@@ -136,20 +128,15 @@ void client_func3()
 
     for (int i = 0; i < 10; ++i) {
         StopWatch watch;
-        int recvBytes = 0;
-        std::string reply;
-        zrpc::Rpc rpc;
-        stub.callMethod(serviceName, methodName, request, reply, &rpc);
-        rpc.wait();
+        auto result = stub.callMethod(serviceName, methodName, request);
 
-        if (rpc.ok()) {
-            recvBytes += reply.size();
+        if (result.ok()) {
+            (void)result.reply.size();
         } else {
-            std::cout << "Client recv error: " << int(rpc.error()) << std::endl;
-            std::cout << "Client recv error message: " << rpc.errorMessage() << std::endl;
+            std::cout << "Client recv error: " << static_cast<int>(result.code) << std::endl;
+            std::cout << "Client recv error message: " << result.message << std::endl;
         }
         std::cout << "Get cloud elapsed(ms): " << watch.elapsed() << std::endl;
-//        std::cout << "Get cloud byte count: " << recvBytes << std::endl;
     }
     std::cout << "client func to exit." << std::endl;
 }
@@ -158,9 +145,7 @@ void client_func4()
 {
     auto context = std::make_shared<zrpc::Context>();
 
-   const std::string serverAddr = "tcp://localhost:9981";
-//    const std::string serverAddr = "tcp://192.168.1.102:9981";
-    // const std::string serverAddr = "ipc://9985.sock";
+    const std::string serverAddr = "tcp://localhost:9981";
     auto channel = std::make_shared<zrpc::Channel>(context);
     channel->connect(serverAddr);
 
@@ -172,32 +157,51 @@ void client_func4()
 
     for (int i = 0; i < 10; ++i) {
         StopWatch watch;
-        int recvBytes = 0;
-        std::string reply;
-        zrpc::Rpc rpc;
-        stub.callMethod(serviceName, methodName, request, reply, &rpc);
-        rpc.wait();
+        auto result = stub.callMethod(serviceName, methodName, request);
 
-        if (rpc.ok()) {
-            recvBytes += std::atoi(reply.c_str());
+        if (result.ok()) {
+            (void)std::atoi(result.reply.c_str());
         } else {
-            std::cout << "Client recv error: " << int(rpc.error()) << std::endl;
-            std::cout << "Client recv error message: " << rpc.errorMessage() << std::endl;
+            std::cout << "Client recv error: " << static_cast<int>(result.code) << std::endl;
+            std::cout << "Client recv error message: " << result.message << std::endl;
         }
         std::cout << "Get cloud elapsed(ms): " << watch.elapsed() << std::endl;
-//        std::cout << "Get cloud byte count: " << recvBytes << std::endl;
     }
     std::cout << "client func to exit." << std::endl;
+}
+
+void client_func_async()
+{
+    auto context = std::make_shared<zrpc::Context>();
+
+    auto channel = std::make_shared<zrpc::Channel>(context);
+    channel->connect("tcp://localhost:9981");
+
+    zrpc::Stub stub(channel);
+
+    auto handle = stub.callMethodAsync("GreeterService1", "sayHello", "World",
+        {}, [](zrpc::CallResult result) {
+            if (result.ok()) {
+                std::cout << "Async recv: " << result.reply << std::endl;
+            }
+        });
+    if (handle) {
+        auto result = handle->get();
+        if (result.ok()) {
+            std::cout << "Sync wait recv: " << result.reply << std::endl;
+        }
+    }
 }
 
 int main(int argc, char *argv[])
 {
     std::cout << "zrpc client start." << std::endl;
 
-//    client_func();
+    client_func();
 //    client_func2();
 //    client_func3();
-    client_func4();
+//    client_func4();
+//    client_func_async();
 
     std::cout << "zrpc client exit." << std::endl;
     return 0;
