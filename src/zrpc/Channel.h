@@ -34,12 +34,12 @@ public:
     ~Stub();
 
     CallResult callMethod(const std::string &serviceName, const std::string &methodName,
-                          const std::string &request, CallOptions opts = {});
+                          std::string &request, const CallOptions &opts = {});
 
     std::shared_ptr<CallHandle> callMethodAsync(const std::string &serviceName,
                                                 const std::string &methodName,
-                                                std::string request,
-                                                CallOptions opts = {},
+                                                std::string &request,
+                                                const CallOptions &opts = {},
                                                 CompletionCallback onComplete = {});
 
 private:

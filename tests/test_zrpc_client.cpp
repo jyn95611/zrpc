@@ -179,7 +179,8 @@ void client_func_async()
 
     zrpc::Stub stub(channel);
 
-    auto handle = stub.callMethodAsync("GreeterService1", "sayHello", "World",
+    std::string request = "World";
+    auto handle = stub.callMethodAsync("GreeterService1", "sayHello", request,
         {}, [](zrpc::CallResult result) {
             if (result.ok()) {
                 std::cout << "Async recv: " << result.reply << std::endl;

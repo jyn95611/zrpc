@@ -84,8 +84,8 @@ public:
 
     std::shared_ptr<CallHandle> call(const std::string &serviceName,
                                      const std::string &methodName,
-                                     std::string request,
-                                     CallOptions opts,
+                                     std::string &request,
+                                     const CallOptions &opts,
                                      CompletionCallback onComplete)
     {
         if (_currentCall && !_currentCall->ready()) {
@@ -134,7 +134,7 @@ Stub::~Stub()
 }
 
 CallResult Stub::callMethod(const std::string &serviceName, const std::string &methodName,
-                            const std::string &request, CallOptions opts)
+                            std::string &request, const CallOptions &opts)
 {
     auto handle = _d->call(serviceName, methodName, request, opts, {});
     if (!handle) {
@@ -145,10 +145,10 @@ CallResult Stub::callMethod(const std::string &serviceName, const std::string &m
 
 std::shared_ptr<CallHandle> Stub::callMethodAsync(const std::string &serviceName,
                                                   const std::string &methodName,
-                                                  std::string request,
-                                                  CallOptions opts,
+                                                  std::string &request,
+                                                  const CallOptions &opts,
                                                   CompletionCallback onComplete)
 {
-    return _d->call(serviceName, methodName, std::move(request), opts, std::move(onComplete));
+    return _d->call(serviceName, methodName, request, opts, std::move(onComplete));
 }
 }
