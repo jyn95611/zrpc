@@ -18,14 +18,10 @@ if(MSVC)
 endif()
 
 if(WIN32)
-    set(_ZMQ_DIR_DEFAULT "${CMAKE_SOURCE_DIR}/../libzmq")
-    set(_CPPZMQ_DIR_DEFAULT "${CMAKE_SOURCE_DIR}/../cppzmq")
+    set(ZMQ_DIR "${CMAKE_SOURCE_DIR}/../libzmq")
 else()
-    set(_ZMQ_DIR_DEFAULT "/Users/jiaoyining/workspace/projects/cpp_pro/zmq/libzmq")
-    set(_CPPZMQ_DIR_DEFAULT "/opt/homebrew/Cellar/cppzmq/4.10.0")
+    set(ZMQ_DIR "/Users/jiaoyining/workspace/projects/cpp_pro/zmq/libzmq")
 endif()
-set(ZMQ_DIR "${_ZMQ_DIR_DEFAULT}" CACHE PATH "libzmq root directory")
-set(CPPZMQ_DIR "${_CPPZMQ_DIR_DEFAULT}" CACHE PATH "cppzmq root directory")
 
 target_include_directories(zrpc PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
@@ -33,7 +29,7 @@ target_include_directories(zrpc PUBLIC
 )
 target_include_directories(zrpc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(zrpc PRIVATE ${ZMQ_DIR}/include)
-target_include_directories(zrpc PRIVATE ${CPPZMQ_DIR}/include)
+target_include_directories(zrpc PRIVATE ${CMAKE_SOURCE_DIR}/external)
 target_link_directories(zrpc PUBLIC ${ZMQ_DIR}/build/lib/release)
 
 if(WIN32)
