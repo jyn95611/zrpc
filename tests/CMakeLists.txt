@@ -1,5 +1,6 @@
 set(ZRPC_TESTS
     test_zrpc
+    test_zrpc_benchmark
     test_zrpc_client
     test_zrpc_server
     test_zrpc_pub
