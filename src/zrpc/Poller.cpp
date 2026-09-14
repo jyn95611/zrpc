@@ -87,7 +87,7 @@ void Poller::rebuildPollitems()
 {
     _pollitems.resize(_sockets.size());
     for (int i = 0; i < _sockets.size(); ++i) {
-        _pollitems[i] = zmq::pollitem_t{_sockets[i].first->handle(), 0, ZMQ_POLLIN, 0};
+        _pollitems[i] = zmq::pollitem_t{static_cast<void*>(*_sockets[i].first), 0, ZMQ_POLLIN, 0};
     }
 }
 

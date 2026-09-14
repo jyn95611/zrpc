@@ -13,18 +13,18 @@ ContextPrivate *ContextAccess::get(Context *ctx)
 }
 }
 ContextPrivate::ContextPrivate(int ioThrNum, int workerThrNum)
-    : _ctx(ioThrNum)
+    : _ctx(ioThrNum),
+      _backend(_ctx, zmq::socket_type::router),
+      _frontend(_ctx, zmq::socket_type::dealer)
 {
     _backendAddr = "inproc://context_backend";
-    _backend = zmq::socket_t(_ctx, zmq::socket_type::router);
-    _backend.set(zmq::sockopt::linger, 0);
+    _backend.setsockopt(ZMQ_LINGER, 0);
     _backend.bind(_backendAddr);
     std::cout << "Backend socket bind addr: " << _backendAddr << std::endl;
 
-    _frontend = zmq::socket_t(_ctx, zmq::socket_type::dealer);
     _frontendId = "context_frontend";
-    _frontend.set(zmq::sockopt::routing_id, _frontendId.c_str());
-    _frontend.set(zmq::sockopt::linger, 0);
+    _frontend.setsockopt(ZMQ_ROUTING_ID, _frontendId.c_str(), _frontendId.size());
+    _frontend.setsockopt(ZMQ_LINGER, 0);
     _frontend.connect(_backendAddr);
 
     _workerThrs.reserve(workerThrNum);
@@ -54,7 +54,7 @@ ContextPrivate::~ContextPrivate()
 std::unique_ptr<zmq::socket_t> ContextPrivate::createFrontendSocket()
 {
     std::unique_ptr<zmq::socket_t> socket(new zmq::socket_t(_ctx, zmq::socket_type::dealer));
-    socket->set(zmq::sockopt::linger, 0);
+    socket->setsockopt(ZMQ_LINGER, 0);
     socket->connect(_backendAddr);
     return socket;
 }
@@ -65,7 +65,7 @@ uint64_t ContextPrivate::addClient(const std::string &addr)
     auto *event = new ConnectEvent;
     event->serverAddr = addr;
     std::lock_guard<std::mutex> locker(_frontendMutex);    
-    DealerWriter(_frontend).writePtr(event, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(event, 0);
 
     const auto socketId = DealerReader(_frontend).read<uint64_t>();
     std::cout << "Add client end. client socketId: " << socketId << std::endl;
@@ -77,7 +77,7 @@ void ContextPrivate::removeClient(uint64_t socketId)
     auto *event = new DisconnectEvent;
     event->socketId = socketId;
     std::lock_guard<std::mutex> locker(_frontendMutex);
-    DealerWriter(_frontend).writePtr(event, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(event, 0);
 }
 
 uint64_t ContextPrivate::addServer(const std::string &addr, const ServerFunc &func)
@@ -87,7 +87,7 @@ uint64_t ContextPrivate::addServer(const std::string &addr, const ServerFunc &fu
     event->serverAddr = addr;
     event->serverFunc = func;
     std::lock_guard<std::mutex> locker(_frontendMutex);    
-    DealerWriter(_frontend).writePtr(event, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(event, 0);
 
     const auto socketId = DealerReader(_frontend).read<uint64_t>();
     std::cout << "Add server end. server socketId: " << socketId << std::endl;
@@ -99,7 +99,7 @@ void ContextPrivate::removeServer(uint64_t socketId)
     auto *event = new UnbindEvent;
     event->socketId = socketId;
     std::lock_guard<std::mutex> locker(_frontendMutex);    
-    DealerWriter(_frontend).writePtr(event, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(event, 0);
 }
 
 uint64_t ContextPrivate::addPub(const std::string &addr)
@@ -108,7 +108,7 @@ uint64_t ContextPrivate::addPub(const std::string &addr)
     auto *event = new AddPubEvent;
     event->serverAddr = addr;
     std::lock_guard<std::mutex> locker(_frontendMutex);
-    DealerWriter(_frontend).writePtr(event, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(event, 0);
 
     const auto socketId = DealerReader(_frontend).read<uint64_t>();
     std::cout << "Add pub end. server socketId: " << socketId << std::endl;
@@ -120,7 +120,7 @@ void ContextPrivate::removePub(uint64_t socketId)
     auto *event = new RemovePubEvent;
     event->socketId = socketId;
     std::lock_guard<std::mutex> locker(_frontendMutex);
-    DealerWriter(_frontend).writePtr(event, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(event, 0);
 }
 
 uint64_t ContextPrivate::addSub(const std::string &addr, const SubFunc &func)
@@ -130,7 +130,7 @@ uint64_t ContextPrivate::addSub(const std::string &addr, const SubFunc &func)
     event->serverAddr = addr;
     event->subFunc = func;
     std::lock_guard<std::mutex> locker(_frontendMutex);
-    DealerWriter(_frontend).writePtr(event, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(event, 0);
 
     const auto socketId = DealerReader(_frontend).read<uint64_t>();
     std::cout << "Add sub end. server socketId: " << socketId << std::endl;
@@ -142,7 +142,7 @@ void ContextPrivate::removeSub(uint64_t socketId)
     auto *event = new RemoveSubEvent;
     event->socketId = socketId;
     std::lock_guard<std::mutex> locker(_frontendMutex);
-    DealerWriter(_frontend).writePtr(event, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(event, 0);
 }
 
 uint64_t ContextPrivate::generateSocketId()
@@ -158,7 +158,7 @@ uint64_t ContextPrivate::generateRequestId()
 void ContextPrivate::quit()
 {
     std::lock_guard<std::mutex> locker(_frontendMutex);
-    DealerWriter(_frontend).writePtr(new QuitEvent, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(new QuitEvent, 0);
 }
 
 void ContextPrivate::wait()
@@ -179,7 +179,7 @@ void ContextPrivate::poll()
     {
         waitAllWorkerReady();
         std::cout << "All worker already ready." << std::endl;
-        RouterWriter(_backend, _frontendId).writePtr(new ReadyEvent, zmq::send_flags::none);
+        RouterWriter(_backend, _frontendId).writePtr(new ReadyEvent, 0);
     }
 
     _poller->addSocket(&_backend, [this]{ handleBackendSocket(); });
@@ -198,7 +198,7 @@ void ContextPrivate::worker()
 {
     zmq::socket_t dealer(_ctx, zmq::socket_type::dealer);
     dealer.connect(_backendAddr);
-    DealerWriter(dealer).writePtr(new ReadyEvent, zmq::send_flags::none);
+    DealerWriter(dealer).writePtr(new ReadyEvent, 0);
 
     bool quit{false};
     while (!quit) {
@@ -360,7 +360,7 @@ void ContextPrivate::handleSubSocket(uint64_t socketId, const SubFunc &subFunc)
 
 void ContextPrivate::sendWorkerEvent(Event *event)
 {
-    RouterWriter(_backend, _workerIds[_currentWorker]).writePtr(event, zmq::send_flags::none);
+    RouterWriter(_backend, _workerIds[_currentWorker]).writePtr(event, 0);
     ++_currentWorker;
     if (_currentWorker == _workerIds.size()) {
         _currentWorker = 0;
@@ -378,7 +378,7 @@ void ContextPrivate::onConnectEvent(ConnectEvent *event, const std::string &rout
     });
     _clientSockets.emplace(socketId, std::move(socket));
 
-    RouterWriter(_backend, routerId).write(socketId, zmq::send_flags::none);
+    RouterWriter(_backend, routerId).write(socketId, 0);
 }
 
 void ContextPrivate::onDisconnectEvent(DisconnectEvent *event)
@@ -404,7 +404,7 @@ void ContextPrivate::onSendRequestEvent(SendRequestEvent *event)
     auto &clientSocket = _clientSockets[event->clientSocketId];
     DealerWriter writer(*clientSocket);
     writer.write(requestId);
-    writer.writeMessage(event->requestMsg, zmq::send_flags::none);
+    writer.writeMessage(event->requestMsg, 0);
 }
 
 void ContextPrivate::onProcessReplyEvent(ProcessReplyEvent *event)
@@ -423,7 +423,7 @@ void ContextPrivate::onBindEvent(BindEvent *event, const std::string &routerId)
     });
     _serverSockets.emplace(socketId, std::move(socket));
 
-    RouterWriter(_backend, routerId).write(socketId, zmq::send_flags::none);
+    RouterWriter(_backend, routerId).write(socketId, 0);
 }
 
 void ContextPrivate::onUnbindEvent(UnbindEvent *event)
@@ -446,7 +446,7 @@ void ContextPrivate::onProcessRequestEvent(ProcessRequestEvent *event)
     replyEvent->serverSocketId = event->serverSocketId;
     replyEvent->routerId = std::move(event->routerId);
     replyEvent->replyMsg = std::move(replyMsg);
-    DealerWriter(_frontend).writePtr(replyEvent, zmq::send_flags::none);
+    DealerWriter(_frontend).writePtr(replyEvent, 0);
 }
 
 void ContextPrivate::onSendReplyEvent(SendReplyEvent *event)
@@ -454,7 +454,7 @@ void ContextPrivate::onSendReplyEvent(SendReplyEvent *event)
     auto &serverSocket = _serverSockets[event->serverSocketId];
     RouterWriter writer(*serverSocket, event->routerId);
     writer.write(event->requestId);
-    writer.writeMessage(event->replyMsg, zmq::send_flags::none);
+    writer.writeMessage(event->replyMsg, 0);
 }
 
 void ContextPrivate::onAddPubEvent(AddPubEvent *event, const std::string &routerId)
@@ -465,7 +465,7 @@ void ContextPrivate::onAddPubEvent(AddPubEvent *event, const std::string &router
     const auto socketId = generateSocketId();
     _pubSockets.emplace(socketId, std::move(pubSocket));
 
-    RouterWriter(_backend, routerId).write(socketId, zmq::send_flags::none);
+    RouterWriter(_backend, routerId).write(socketId, 0);
 }
 
 void ContextPrivate::onRemovePubEvent(RemovePubEvent *event)
@@ -478,7 +478,7 @@ void ContextPrivate::onRemovePubEvent(RemovePubEvent *event)
 void ContextPrivate::onAddSubEvent(AddSubEvent *event, const std::string &routerId)
 {
     auto subSocket = std::make_unique<zmq::socket_t>(_ctx, zmq::socket_type::sub);
-    subSocket->set(zmq::sockopt::subscribe, "");
+    subSocket->setsockopt(ZMQ_SUBSCRIBE, "", 0);
     subSocket->connect(event->serverAddr);
 
     const auto socketId = generateSocketId();
@@ -487,7 +487,7 @@ void ContextPrivate::onAddSubEvent(AddSubEvent *event, const std::string &router
     });
     _subSockets.emplace(socketId, std::move(subSocket));
 
-    RouterWriter(_backend, routerId).write(socketId, zmq::send_flags::none);
+    RouterWriter(_backend, routerId).write(socketId, 0);
 }
 
 void ContextPrivate::onRemoveSubEvent(RemoveSubEvent *event)
@@ -502,7 +502,7 @@ void ContextPrivate::onRemoveSubEvent(RemoveSubEvent *event)
 void ContextPrivate::onPubTopicEvent(PubTopicEvent *event)
 {
     SocketWriter writer(*_pubSockets[event->socketId]);
-    writer.writeMessage(event->topicMsg, zmq::send_flags::none);
+    writer.writeMessage(event->topicMsg, 0);
 }
 
 void ContextPrivate::onSubTopicEvent(SubTopicEvent *event)

@@ -37,7 +37,7 @@ public:
         event->topicMsg = std::move(rpcTopic.serialize());
 
         std::lock_guard<std::mutex> locker(_mtxForDealer);
-        DealerWriter(*dealer).writePtr(event, zmq::send_flags::none);
+        DealerWriter(*dealer).writePtr(event, 0);
 
     }
 

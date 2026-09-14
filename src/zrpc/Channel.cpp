@@ -114,7 +114,7 @@ public:
             _currentCall.reset();
         };
 
-        DealerWriter(*dealer).writePtr(event, zmq::send_flags::none);
+        DealerWriter(*dealer).writePtr(event, 0);
         return handle;
     }
 

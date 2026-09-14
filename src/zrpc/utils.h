@@ -32,8 +32,8 @@ public:
 
     zmq::message_t& next()
     {
-        if (_socket.recv(_message, zmq::recv_flags::none)) {
-            _has_more = _socket.get(zmq::sockopt::rcvmore);
+        if (_socket.recv(&_message, 0)) {
+            _has_more = _socket.getsockopt<int>(ZMQ_RCVMORE);
         } else {
             _message = zmq::message_t();
             _has_more = false;
@@ -54,37 +54,37 @@ struct SocketWriter
 {
     SocketWriter(zmq::socket_t &socket) : _socket(socket) {}
 
-    bool writeEmpty(zmq::send_flags flags = zmq::send_flags::sndmore)
+    bool writeEmpty(int flags = ZMQ_SNDMORE)
     {
         zmq::message_t message(0);
-        return _socket.send(message, flags).has_value();
+        return _socket.send(message, flags);
     }
 
     template <typename T, typename = typename std::enable_if<std::is_fundamental_v<T>>::type>
-    bool write(T val, zmq::send_flags flags = zmq::send_flags::sndmore)
+    bool write(T val, int flags = ZMQ_SNDMORE)
     {
         zmq::message_t msg(sizeof(val));
         memcpy(msg.data(), &val, sizeof(val));
-        return _socket.send(msg, flags).has_value();
+        return _socket.send(msg, flags);
     }
 
-    bool writeString(const std::string &str, zmq::send_flags flags = zmq::send_flags::sndmore)
+    bool writeString(const std::string &str, int flags = ZMQ_SNDMORE)
     {
         zmq::message_t msg(str.size());
         str.copy((char*)msg.data(), str.size(), 0);
-        return _socket.send(msg, flags).has_value();
+        return _socket.send(msg, flags);
     }   
 
-    bool writePtr(void *ptr, zmq::send_flags flags = zmq::send_flags::sndmore)
+    bool writePtr(void *ptr, int flags = ZMQ_SNDMORE)
     {
         zmq::message_t msg(sizeof(ptr));
         memcpy(msg.data(), &ptr, sizeof(ptr));
-        return _socket.send(msg, flags).has_value();
+        return _socket.send(msg, flags);
     }
 
-    bool writeMessage(zmq::message_t &msg, zmq::send_flags flags = zmq::send_flags::sndmore)
+    bool writeMessage(zmq::message_t &msg, int flags = ZMQ_SNDMORE)
     {
-        return _socket.send(msg, flags).has_value();
+        return _socket.send(msg, flags);
     }
 
 protected:
@@ -154,7 +154,7 @@ struct DealerReader : public SocketdReader
 {
     DealerReader(zmq::socket_t &socket) : SocketdReader(socket)
     {
-        if (!_iter.next().empty())
+        if (_iter.next().size() != 0)
             _error = true;
     }
 };
@@ -164,7 +164,7 @@ struct RouterReader : public SocketdReader
     RouterReader(zmq::socket_t &socket) : SocketdReader(socket)
     {
         routerId = readString();
-        if (!_iter.next().empty())
+        if (_iter.next().size() != 0)
             _error = true;
     }
 
