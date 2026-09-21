@@ -1,4 +1,6 @@
+#include <cstring>
 #include <iostream>
+#include <string>
 
 #include "utils.h"
 #include "ContextAccess.h"
@@ -44,8 +46,8 @@ ContextPrivate::~ContextPrivate()
 
     _frontend.close();
     _backend.close();
-    _clientFuncs.clear();
-    _clientSockets.clear();
+    _clientRequests.clear();
+    _clientSessions.clear();
     _serverSockets.clear();
     _pubSockets.clear();
     _subSockets.clear();
@@ -202,9 +204,7 @@ void ContextPrivate::worker()
 
     bool quit{false};
     while (!quit) {
-//        std::cout << "Worker on event begin." << std::endl;
         auto event = DealerReader(dealer).readPtr<Event>();
-//        std::cout << "Worker on event type: " << int(event->type) << std::endl;
         switch (event->type) {
         case EventType::ProcessRequest:
             onProcessRequestEvent(static_cast<ProcessRequestEvent*>(event.get()));
@@ -216,13 +216,11 @@ void ContextPrivate::worker()
             onSubTopicEvent(static_cast<SubTopicEvent*>(event.get()));
             break;
         case EventType::Quit:
-//            std::cout << "Worker on quit event." << std::endl;
             quit = true;
             break;
         default:
             break;
         }
-//        std::cout << "Worker on event end." << std::endl;
     }
 
     dealer.close();
@@ -293,34 +291,87 @@ void ContextPrivate::handleBackendSocket()
 
 void ContextPrivate::handleClientSocket(uint64_t socketId)
 {
-    DealerReader reader(*_clientSockets[socketId]);
+    auto sessionIter = _clientSessions.find(socketId);
+    if (sessionIter == _clientSessions.end() || !sessionIter->second.socket)
+        return;
+
+    DealerReader reader(*sessionIter->second.socket);
     if (reader.error())
         return;
 
     const auto requestId = reader.read<uint64_t>();
-    const auto clientFuncIter = _clientFuncs.find(requestId);
-    if (clientFuncIter == _clientFuncs.end())
+    completeClientRequest(requestId, RpcRequestStatus::Done, reader.readMessage());
+}
+
+void ContextPrivate::handleClientMonitor(uint64_t socketId)
+{
+    auto sessionIter = _clientSessions.find(socketId);
+    if (sessionIter == _clientSessions.end() || !sessionIter->second.monitor)
+        return;
+
+    auto &session = sessionIter->second;
+    zmq::message_t eventMsg;
+    if (!session.monitor->recv(&eventMsg, 0))
+        return;
+
+    if (eventMsg.size() < sizeof(uint16_t) + sizeof(int32_t))
+        return;
+
+    uint16_t eventId = 0;
+    memcpy(&eventId, eventMsg.data(), sizeof(uint16_t));
+
+    if (session.monitor->getsockopt<int>(ZMQ_RCVMORE)) {
+        zmq::message_t addrMsg;
+        session.monitor->recv(&addrMsg, 0);
+    }
+
+    if (eventId == ZMQ_EVENT_CONNECTED) {
+        session.connected = true;
+        session.everConnected = true;
+        return;
+    }
+
+    if (eventId == ZMQ_EVENT_DISCONNECTED) {
+        session.connected = false;
+        failSocketPending(socketId, RpcRequestStatus::Disconnected);
+    }
+}
+
+void ContextPrivate::completeClientRequest(uint64_t requestId, RpcRequestStatus status,
+                                           zmq::message_t replyMsg)
+{
+    auto requestIter = _clientRequests.find(requestId);
+    if (requestIter == _clientRequests.end())
         return;
 
     auto *event = new ProcessReplyEvent;
-    event->status = RpcRequestStatus::Done;
-    event->clientFunc = clientFuncIter->second;
-    event->replyMsg = reader.readMessage();
+    event->status = status;
+    event->clientFunc = std::move(requestIter->second.func);
+    event->replyMsg = std::move(replyMsg);
     sendWorkerEvent(event);
-    _clientFuncs.erase(clientFuncIter);
+
+    const uint64_t socketId = requestIter->second.socketId;
+    _clientRequests.erase(requestIter);
+
+    auto sessionIter = _clientSessions.find(socketId);
+    if (sessionIter != _clientSessions.end())
+        sessionIter->second.pendingRequests.erase(requestId);
+}
+
+void ContextPrivate::failSocketPending(uint64_t socketId, RpcRequestStatus status)
+{
+    auto sessionIter = _clientSessions.find(socketId);
+    if (sessionIter == _clientSessions.end())
+        return;
+
+    const auto requestIds = sessionIter->second.pendingRequests;
+    for (auto requestId : requestIds)
+        completeClientRequest(requestId, status);
 }
 
 void ContextPrivate::handleClientRequestTimeout(uint64_t requestId)
 {
-    const auto clientFuncIter = _clientFuncs.find(requestId);
-    if (clientFuncIter == _clientFuncs.end())
-        return;
-
-    auto *event = new ProcessReplyEvent;
-    event->status = RpcRequestStatus::DeadlineExceeded;
-    event->clientFunc = clientFuncIter->second;
-    sendWorkerEvent(event);
-    _clientFuncs.erase(clientFuncIter);
+    completeClientRequest(requestId, RpcRequestStatus::DeadlineExceeded);
 }
 
 void ContextPrivate::handleServerSocket(uint64_t socketId, const ServerFunc &serverFunc)
@@ -370,13 +421,30 @@ void ContextPrivate::sendWorkerEvent(Event *event)
 void ContextPrivate::onConnectEvent(ConnectEvent *event, const std::string &routerId)
 {
     auto socket = std::make_unique<zmq::socket_t>(_ctx, zmq::socket_type::dealer);
-    socket->connect(event->serverAddr);
+    socket->setsockopt(ZMQ_LINGER, 0);
 
     const uint64_t socketId = generateSocketId();
+    const auto monitorAddr = "inproc://zrpc-client-monitor-" + std::to_string(socketId);
+    zmq_socket_monitor(static_cast<void *>(*socket), monitorAddr.c_str(),
+                       ZMQ_EVENT_CONNECTED | ZMQ_EVENT_DISCONNECTED);
+
+    auto monitor = std::make_unique<zmq::socket_t>(_ctx, zmq::socket_type::pair);
+    monitor->setsockopt(ZMQ_LINGER, 0);
+    monitor->connect(monitorAddr);
+
+    socket->connect(event->serverAddr);
+
     _poller->addSocket(socket.get(), [this, socketId]{
         handleClientSocket(socketId);
     });
-    _clientSockets.emplace(socketId, std::move(socket));
+    _poller->addSocket(monitor.get(), [this, socketId]{
+        handleClientMonitor(socketId);
+    });
+
+    ClientSession session;
+    session.socket = std::move(socket);
+    session.monitor = std::move(monitor);
+    _clientSessions.emplace(socketId, std::move(session));
 
     RouterWriter(_backend, routerId).write(socketId, 0);
 }
@@ -384,16 +452,42 @@ void ContextPrivate::onConnectEvent(ConnectEvent *event, const std::string &rout
 void ContextPrivate::onDisconnectEvent(DisconnectEvent *event)
 {
     _poller->postCallback([this, socketId = event->socketId]{
-        auto socket = std::move(_clientSockets[socketId]);
-        _clientSockets.erase(socketId);
-        _poller->removeSocket(socket.get());
+        failSocketPending(socketId, RpcRequestStatus::Disconnected);
+
+        auto sessionIter = _clientSessions.find(socketId);
+        if (sessionIter == _clientSessions.end())
+            return;
+
+        auto session = std::move(sessionIter->second);
+        _clientSessions.erase(sessionIter);
+
+        if (session.socket) {
+            zmq_socket_monitor(static_cast<void *>(*session.socket), nullptr, 0);
+            _poller->removeSocket(session.socket.get());
+        }
+        if (session.monitor)
+            _poller->removeSocket(session.monitor.get());
     });
 }
 
 void ContextPrivate::onSendRequestEvent(SendRequestEvent *event)
 {
+    auto sessionIter = _clientSessions.find(event->clientSocketId);
+    const bool disconnected = sessionIter != _clientSessions.end()
+        && sessionIter->second.everConnected
+        && !sessionIter->second.connected;
+    if (disconnected || sessionIter == _clientSessions.end() || !sessionIter->second.socket) {
+        auto *reply = new ProcessReplyEvent;
+        reply->status = RpcRequestStatus::Disconnected;
+        reply->clientFunc = std::move(event->clientFunc);
+        sendWorkerEvent(reply);
+        return;
+    }
+
+    auto &session = sessionIter->second;
     const uint64_t requestId = generateRequestId();
-    _clientFuncs.emplace(requestId, event->clientFunc);
+    _clientRequests.emplace(requestId, ClientRequest{event->clientSocketId, std::move(event->clientFunc)});
+    session.pendingRequests.insert(requestId);
 
     if (event->timeoutMs > 0) {
         _poller->runCallbackAfter(event->timeoutMs, [this, requestId]{
@@ -401,8 +495,7 @@ void ContextPrivate::onSendRequestEvent(SendRequestEvent *event)
         });
     }
 
-    auto &clientSocket = _clientSockets[event->clientSocketId];
-    DealerWriter writer(*clientSocket);
+    DealerWriter writer(*session.socket);
     writer.write(requestId);
     writer.writeMessage(event->requestMsg, 0);
 }
@@ -451,8 +544,11 @@ void ContextPrivate::onProcessRequestEvent(ProcessRequestEvent *event)
 
 void ContextPrivate::onSendReplyEvent(SendReplyEvent *event)
 {
-    auto &serverSocket = _serverSockets[event->serverSocketId];
-    RouterWriter writer(*serverSocket, event->routerId);
+    auto socketIter = _serverSockets.find(event->serverSocketId);
+    if (socketIter == _serverSockets.end() || !socketIter->second)
+        return;
+
+    RouterWriter writer(*socketIter->second, event->routerId);
     writer.write(event->requestId);
     writer.writeMessage(event->replyMsg, 0);
 }

@@ -42,6 +42,7 @@ enum class RpcRequestStatus
 {
     Done = 0,
     DeadlineExceeded = 1,
+    Disconnected = 2,
 };
 
 using ClientFunc = std::function<void(RpcRequestStatus, zmq::message_t&)>;

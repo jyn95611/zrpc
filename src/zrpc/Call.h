@@ -14,6 +14,7 @@ enum class ErrorCode
     Ok = 0,
     CallInProcess,
     Timeout,
+    Disconnected,
     InvalidMessage,
 
     NoSuchService = 100,

@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <thread>
 #include <mutex>
@@ -42,9 +43,14 @@ public:
 
     void handleBackendSocket();
     void handleClientSocket(uint64_t socketId);
+    void handleClientMonitor(uint64_t socketId);
     void handleClientRequestTimeout(uint64_t requestId);
     void handleServerSocket(uint64_t socketId, const ServerFunc &serverFunc);
     void handleSubSocket(uint64_t socketId, const SubFunc &subFunc);
+
+    void completeClientRequest(uint64_t requestId, RpcRequestStatus status,
+                               zmq::message_t replyMsg = {});
+    void failSocketPending(uint64_t socketId, RpcRequestStatus status);
 
     void sendWorkerEvent(Event *event);
 
@@ -79,11 +85,26 @@ private:
     std::unique_ptr<Poller> _poller;
     std::unique_ptr<std::thread> _pollerThr;
 
+    struct ClientSession
+    {
+        std::unique_ptr<zmq::socket_t> socket;
+        std::unique_ptr<zmq::socket_t> monitor;
+        bool connected{false};
+        bool everConnected{false};
+        std::unordered_set<uint64_t> pendingRequests;
+    };
+
+    struct ClientRequest
+    {
+        uint64_t socketId{0};
+        ClientFunc func;
+    };
+
     uint64_t _lastRequestId{0};
     uint64_t _lastSocketId{0};
     std::unordered_map<uint64_t, std::unique_ptr<zmq::socket_t>> _serverSockets;
-    std::unordered_map<uint64_t, std::unique_ptr<zmq::socket_t>> _clientSockets;
-    std::unordered_map<uint64_t, ClientFunc> _clientFuncs;
+    std::unordered_map<uint64_t, ClientSession> _clientSessions;
+    std::unordered_map<uint64_t, ClientRequest> _clientRequests;
 
     std::unordered_map<uint64_t, std::unique_ptr<zmq::socket_t>> _pubSockets;
     std::unordered_map<uint64_t, std::unique_ptr<zmq::socket_t>> _subSockets;

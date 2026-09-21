@@ -53,6 +53,10 @@ CallResult buildCallResult(RpcRequestStatus status, zmq::message_t &replyMsg)
         return {ErrorCode::Timeout, "timeout", {}};
     }
 
+    if (status == RpcRequestStatus::Disconnected) {
+        return {ErrorCode::Disconnected, "peer disconnected", {}};
+    }
+
     if (status != RpcRequestStatus::Done) {
         return {ErrorCode::InvalidMessage, "invalid request status", {}};
     }
