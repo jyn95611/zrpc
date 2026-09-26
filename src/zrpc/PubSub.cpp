@@ -1,10 +1,10 @@
+#include <algorithm>
 #include <iostream>
 #include <mutex>
 
 #include "utils.h"
 #include "Message.h"
 #include "Event.h"
-#include "ContextAccess.h"
 #include "ContextPrivate.h"
 #include "Context.h"
 #include "PubSub.h"
@@ -26,19 +26,15 @@ public:
             dealer->close();
     }
 
-    void pubTopic(const std::string &topic, std::string &&data)
+    void pubTopic(const std::string &topic, Payload &&data)
     {
-        RpcTopic rpcTopic;
-        rpcTopic.topic = topic;
-        rpcTopic.data = std::move(data);
-
         auto *event = new PubTopicEvent;
         event->socketId = socketId;
-        event->topicMsg = std::move(rpcTopic.serialize());
+        event->message.header = takeMessage(std::string(topic));
+        event->message.parts = takePayload(std::move(data));
 
         std::lock_guard<std::mutex> locker(_mtxForDealer);
         DealerWriter(*dealer).writePtr(event, 0);
-
     }
 
     std::shared_ptr<Context> ctx;
@@ -62,7 +58,7 @@ void Publisher::bind(const std::string &addr)
     _d->socketId = detail::ContextAccess::get(_d->ctx)->addPub(addr);
 }
 
-void Publisher::pubTopic(const std::string &topic, std::string &&data)
+void Publisher::pubTopic(const std::string &topic, Payload &&data)
 {
     _d->pubTopic(topic, std::move(data));
 }
@@ -80,17 +76,17 @@ public:
             detail::ContextAccess::get(ctx)->removeSub(socketId);
     }
 
-    void topicCallback(zmq::message_t &topicMsg)
+    void topicCallback(RpcMessage &msg)
     {
-        RpcTopic rpcTopic;
-        if (!rpcTopic.deserialize(topicMsg)) {
+        if (!msg.valid) {
             std::cout << "Invalid topic message." << std::endl;
             return;
         }
 
-        const auto iter = std::find(topics.cbegin(), topics.cend(), rpcTopic.topic);
+        const auto topic = viewMessage(msg.header);
+        const auto iter = std::find(topics.cbegin(), topics.cend(), topic);
         if (iter != topics.cend() && topicCb) {
-            topicCb(rpcTopic.topic, rpcTopic.data);
+            topicCb(topic, viewPayload(msg));
         }
     }
 
@@ -117,7 +113,7 @@ void Subscriber::setCallback(const TopicCallback &cb)
 
 void Subscriber::connect(const std::string &addr)
 {
-    const auto socketId = detail::ContextAccess::get(_d->ctx)->addSub(addr, [this](zmq::message_t &topicMsg){
+    const auto socketId = detail::ContextAccess::get(_d->ctx)->addSub(addr, [this](RpcMessage &topicMsg){
         _d->topicCallback(topicMsg);
     });
     _d->socketId = socketId;

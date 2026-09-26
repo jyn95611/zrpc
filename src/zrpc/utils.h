@@ -10,19 +10,19 @@ inline uint64_t zclock_time()
                chrono::system_clock::now()).time_since_epoch().count();
 }
 
-class message_iterator {
+class MessageIterator {
 public:
-    explicit message_iterator(zmq::socket_t& socket) :
+    explicit MessageIterator(zmq::socket_t& socket) :
         _socket(socket), _has_more(true), _more_size(sizeof(_has_more)) { };
 
-    message_iterator(const message_iterator& other) :
+    MessageIterator(const MessageIterator& other) :
         _socket(other._socket),
         _has_more(other._has_more),
         _more_size(other._more_size)
     {
     }
 
-    ~message_iterator()
+    ~MessageIterator()
     {
         while (has_more())
             next();
@@ -47,7 +47,7 @@ private:
     int _has_more;
     size_t _more_size;
 
-    message_iterator& operator=(const message_iterator&);
+    MessageIterator& operator=(const MessageIterator&);
 };
 
 struct SocketWriter
@@ -147,7 +147,7 @@ struct SocketdReader
 
 protected:
     bool _error{false};
-    message_iterator _iter;
+    MessageIterator _iter;
 };
 
 struct DealerReader : public SocketdReader

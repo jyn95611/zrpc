@@ -9,24 +9,26 @@ class GreeterService1 : public zrpc::Service
 public:
     GreeterService1() : zrpc::Service("GreeterService1")
     {
-        addMethod("sayHello", [this](const std::string &request, std::string &reply){
+        addMethod("sayHello", [this](const zrpc::PayloadView &request, zrpc::Payload &reply){
             sayHello(request, reply);
         });
-        addMethod("sayHi", [this](const std::string &request, std::string &reply){
+        addMethod("sayHi", [this](const zrpc::PayloadView &request, zrpc::Payload &reply){
             sayHi(request, reply);
         });
     }
 
-    void sayHello(const std::string &request, std::string &reply)
+    void sayHello(const zrpc::PayloadView &request, zrpc::Payload &reply)
     {
-        std::cout << "GreeterService1 SayHello recv request: " << request << std::endl;
-        reply = "Hello";
+        std::cout << "GreeterService1 SayHello recv request: "
+                  << (request.views.empty() ? "" : request.views[0]) << std::endl;
+        reply.emplace_back("Hello");
     }
 
-    void sayHi(const std::string &request, std::string &reply)
+    void sayHi(const zrpc::PayloadView &request, zrpc::Payload &reply)
     {
-        std::cout << "GreeterService1 SayHi recv request: " << request << std::endl;
-        reply = "Hi";
+        std::cout << "GreeterService1 SayHi recv request: "
+                  << (request.views.empty() ? "" : request.views[0]) << std::endl;
+        reply.emplace_back("Hi");
     }
 };
 
@@ -35,24 +37,26 @@ class GreeterService2 : public zrpc::Service
 public:
     GreeterService2() : zrpc::Service("GreeterService2")
     {
-        addMethod("sayHello", [this](const std::string &request, std::string &reply){
+        addMethod("sayHello", [this](const zrpc::PayloadView &request, zrpc::Payload &reply){
             sayHello(request, reply);
         });
-        addMethod("sayHi", [this](const std::string &request, std::string &reply){
+        addMethod("sayHi", [this](const zrpc::PayloadView &request, zrpc::Payload &reply){
             sayHi(request, reply);
         });
     }
 
-    void sayHello(const std::string &request, std::string &reply)
+    void sayHello(const zrpc::PayloadView &request, zrpc::Payload &reply)
     {
-        std::cout << "GreeterService2 SayHello recv request: " << request << std::endl;
-        reply = "Hello";
+        std::cout << "GreeterService2 SayHello recv request: "
+                  << (request.views.empty() ? "" : request.views[0]) << std::endl;
+        reply.emplace_back("Hello");
     }
 
-    void sayHi(const std::string &request, std::string &reply)
+    void sayHi(const zrpc::PayloadView &request, zrpc::Payload &reply)
     {
-        std::cout << "GreeterService2 SayHi recv request: " << request << std::endl;
-        reply = "Hi";
+        std::cout << "GreeterService2 SayHi recv request: "
+                  << (request.views.empty() ? "" : request.views[0]) << std::endl;
+        reply.emplace_back("Hi");
     }
 };
 
@@ -61,22 +65,24 @@ class CloudService : public zrpc::Service
 public:
     CloudService() : zrpc::Service("CloudService")
     {
-        addMethod("getCloud", [this](const std::string &request, std::string &reply){
+        addMethod("getCloud", [this](const zrpc::PayloadView &request, zrpc::Payload &reply){
             getCloud(request, reply);
         });
-        addMethod("setCloud", [this](const std::string &request, std::string &reply){
+        addMethod("setCloud", [this](const zrpc::PayloadView &request, zrpc::Payload &reply){
             setCloud(request, reply);
         });
     }
 
-    void getCloud(const std::string &request, std::string &reply)
+    void getCloud(const zrpc::PayloadView &request, zrpc::Payload &reply)
     {
-        reply.assign(30 * 10000 * 24, 'a');
+        (void)request;
+        reply.emplace_back(30 * 10000 * 24, 'a');
     }
 
-    void setCloud(const std::string &request, std::string &reply)
+    void setCloud(const zrpc::PayloadView &request, zrpc::Payload &reply)
     {
-        reply.assign(std::to_string(request.size()));
+        const auto size = request.views.empty() ? 0 : request.views[0].size();
+        reply.emplace_back(std::to_string(size));
     }
 };
 

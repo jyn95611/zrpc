@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "Call.h"
 #include "zrpc_global.h"
 
 namespace zrpc {
@@ -16,7 +17,7 @@ public:
 
     const std::string &name() { return _name; }
 
-    using Method = std::function<void(const std::string&, std::string&)>;
+    using Method = std::function<void(const PayloadView&, Payload&)>;
     void addMethod(const std::string &name, const Method &method);
     const Method &findMethod(const std::string &name);
 

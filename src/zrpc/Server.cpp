@@ -1,7 +1,6 @@
 #include <iostream>
 
 #include "Call.h"
-#include "ContextAccess.h"
 #include "ContextPrivate.h"
 #include "Context.h"
 #include "Message.h"
@@ -32,34 +31,35 @@ public:
             detail::ContextAccess::get(ctx)->removeServer(socketId);
     }
 
-    void processRequest(zmq::message_t &requestMsg, zmq::message_t &replyMsg)
+    void processRequest(RpcMessage &request, RpcMessage &reply)
     {
-        RpcReply rpcReply;
-
-        RpcRequest rpcRequest;
-        if (!rpcRequest.deserialize(requestMsg)) {
-            rpcReply.errorCode = static_cast<int>(ErrorCode::InvalidMessage);
-            replyMsg = std::move(rpcReply.serialize());
+        if (!request.valid) {
+            reply = errorReply(ErrorCode::InvalidMessage, peekRequestId(request.header));
             return;
         }
 
-//        std::cout << "Server recv service name: " << rpcRequest.serviceName << std::endl;
-//        std::cout << "Server recv method name: " << rpcRequest.methodName << std::endl;
-
-        auto *service = services[rpcRequest.serviceName];
-        if (service) {
-            auto &method = service->findMethod(rpcRequest.methodName);
-            if (method) {
-                method(rpcRequest.data, rpcReply.data);
-            } else {
-                rpcReply.errorCode = static_cast<int>(ErrorCode::NoSuchMethod);
-                rpcReply.errorMsg = "No such method.";
-            }
-        } else {
-            rpcReply.errorCode = static_cast<int>(ErrorCode::NoSuchService);
-            rpcReply.errorMsg = "No such service.";
+        const auto req = RpcRequestHeader::deserialize(request.header);
+        if (!req) {
+            reply = errorReply(ErrorCode::InvalidMessage, peekRequestId(request.header));
+            return;
         }
-        replyMsg = std::move(rpcReply.serialize());
+
+        auto *service = services[req->serviceName];
+        if (!service) {
+            reply = errorReply(ErrorCode::NoSuchService, req->requestId, "No such service.");
+            return;
+        }
+
+        auto &method = service->findMethod(req->methodName);
+        if (!method) {
+            reply = errorReply(ErrorCode::NoSuchMethod, req->requestId, "No such method.");
+            return;
+        }
+
+        Payload out;
+        method(viewPayload(request), out);
+        reply.header = RpcReplyHeader(req->requestId, ErrorCode::Ok, {}).serialize();
+        reply.parts = takePayload(std::move(out));
     }
 
     std::shared_ptr<Context> ctx;
@@ -84,8 +84,8 @@ void Server::registerService(Service *service)
 
 void Server::bind(const std::string &addr)
 {
-    _d->socketId = detail::ContextAccess::get(_d->ctx)->addServer(addr, [this](zmq::message_t &requestMsg, zmq::message_t &replyMsg){
-        _d->processRequest(requestMsg, replyMsg);
+    _d->socketId = detail::ContextAccess::get(_d->ctx)->addServer(addr, [this](RpcMessage &request, RpcMessage &reply){
+        _d->processRequest(request, reply);
     });
 }
 }

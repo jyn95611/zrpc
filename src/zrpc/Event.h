@@ -1,6 +1,10 @@
 #pragma once
 
-#include <zmq.hpp>
+#include <cstdint>
+#include <functional>
+#include <string>
+
+#include "Message.h"
 
 namespace zrpc {
 enum class EventType {
@@ -38,16 +42,16 @@ struct EventTemplate : public Event
     EventTemplate() : Event(cmdType) {}
 };
 
-enum class RpcRequestStatus
+enum class RequestStatus
 {
-    Done = 0,
-    DeadlineExceeded = 1,
+    Replied = 0,
+    Timeout = 1,
     Disconnected = 2,
 };
 
-using ClientFunc = std::function<void(RpcRequestStatus, zmq::message_t&)>;
-using ServerFunc = std::function<void(zmq::message_t&, zmq::message_t&)>;
-using SubFunc = std::function<void(zmq::message_t&)>;
+using ClientFunc = std::function<void(RequestStatus, RpcMessage&)>;
+using ServerFunc = std::function<void(RpcMessage& request, RpcMessage& reply)>;
+using SubFunc = std::function<void(RpcMessage&)>;
 
 using QuitEvent = EventTemplate<EventType::Quit>;
 using ReadyEvent = EventTemplate<EventType::Ready>;
@@ -67,14 +71,14 @@ struct SendRequestEvent : public EventTemplate<EventType::SendRequest>
     uint64_t clientSocketId;
     int64_t timeoutMs{-1};
     ClientFunc clientFunc;
-    zmq::message_t requestMsg;
+    RpcMessage request;
 };
 
 struct ProcessReplyEvent : public EventTemplate<EventType::ProcessReply>
 {
-    RpcRequestStatus status;
+    RequestStatus status;
     ClientFunc clientFunc;
-    zmq::message_t replyMsg;
+    RpcMessage reply;
 };
 
 struct BindEvent : public EventTemplate<EventType::Bind>
@@ -94,7 +98,7 @@ struct ProcessRequestEvent : public EventTemplate<EventType::ProcessRequest>
     uint64_t serverSocketId;
     ServerFunc serverFunc;
     std::string routerId;
-    zmq::message_t requestMsg;
+    RpcMessage request;
 };
 
 struct SendReplyEvent : public EventTemplate<EventType::SendReply>
@@ -102,7 +106,7 @@ struct SendReplyEvent : public EventTemplate<EventType::SendReply>
     uint64_t requestId;
     uint64_t serverSocketId;
     std::string routerId;
-    zmq::message_t replyMsg;
+    RpcMessage reply;
 };
 
 struct AddPubEvent : public EventTemplate<EventType::AddPub>
@@ -129,12 +133,12 @@ struct RemoveSubEvent : public EventTemplate<EventType::RemoveSub>
 struct PubTopicEvent : public EventTemplate<EventType::PubTopic>
 {
     uint64_t socketId;
-    zmq::message_t topicMsg;
+    RpcMessage message;
 };
 
 struct SubTopicEvent : public EventTemplate<EventType::SubTopic>
 {
     SubFunc subFunc;
-    zmq::message_t topicMsg;
+    RpcMessage message;
 };
 }

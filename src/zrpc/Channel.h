@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <string>
 
@@ -34,11 +33,11 @@ public:
     ~Stub();
 
     CallResult callMethod(const std::string &serviceName, const std::string &methodName,
-                          std::string &request, const CallOptions &opts = {});
+                          Payload &&request, const CallOptions &opts = {});
 
     std::shared_ptr<CallHandle> callMethodAsync(const std::string &serviceName,
                                                 const std::string &methodName,
-                                                std::string &request,
+                                                Payload &&request,
                                                 const CallOptions &opts = {},
                                                 CompletionCallback onComplete = {});
 

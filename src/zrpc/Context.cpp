@@ -3,9 +3,9 @@
 #include <string>
 
 #include "utils.h"
-#include "ContextAccess.h"
 #include "ContextPrivate.h"
 #include "Context.h"
+#include "Message.h"
 
 namespace zrpc {
 namespace detail {
@@ -152,9 +152,9 @@ uint64_t ContextPrivate::generateSocketId()
     return ++_lastSocketId;
 }
 
-uint64_t ContextPrivate::generateRequestId()
+uint64_t ContextPrivate::nextRequestId()
 {
-    return ++_lastRequestId;
+    return _lastRequestId.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 
 void ContextPrivate::quit()
@@ -299,8 +299,8 @@ void ContextPrivate::handleClientSocket(uint64_t socketId)
     if (reader.error())
         return;
 
-    const auto requestId = reader.read<uint64_t>();
-    completeClientRequest(requestId, RpcRequestStatus::Done, reader.readMessage());
+    auto reply = readRpcMessage(reader);
+    completeClientRequest(peekRequestId(reply.header), RequestStatus::Replied, std::move(reply));
 }
 
 void ContextPrivate::handleClientMonitor(uint64_t socketId)
@@ -333,12 +333,12 @@ void ContextPrivate::handleClientMonitor(uint64_t socketId)
 
     if (eventId == ZMQ_EVENT_DISCONNECTED) {
         session.connected = false;
-        failSocketPending(socketId, RpcRequestStatus::Disconnected);
+        failSocketPending(socketId, RequestStatus::Disconnected);
     }
 }
 
-void ContextPrivate::completeClientRequest(uint64_t requestId, RpcRequestStatus status,
-                                           zmq::message_t replyMsg)
+void ContextPrivate::completeClientRequest(uint64_t requestId, RequestStatus status,
+                                           RpcMessage reply)
 {
     auto requestIter = _clientRequests.find(requestId);
     if (requestIter == _clientRequests.end())
@@ -347,7 +347,7 @@ void ContextPrivate::completeClientRequest(uint64_t requestId, RpcRequestStatus 
     auto *event = new ProcessReplyEvent;
     event->status = status;
     event->clientFunc = std::move(requestIter->second.func);
-    event->replyMsg = std::move(replyMsg);
+    event->reply = std::move(reply);
     sendWorkerEvent(event);
 
     const uint64_t socketId = requestIter->second.socketId;
@@ -358,7 +358,7 @@ void ContextPrivate::completeClientRequest(uint64_t requestId, RpcRequestStatus 
         sessionIter->second.pendingRequests.erase(requestId);
 }
 
-void ContextPrivate::failSocketPending(uint64_t socketId, RpcRequestStatus status)
+void ContextPrivate::failSocketPending(uint64_t socketId, RequestStatus status)
 {
     auto sessionIter = _clientSessions.find(socketId);
     if (sessionIter == _clientSessions.end())
@@ -371,7 +371,7 @@ void ContextPrivate::failSocketPending(uint64_t socketId, RpcRequestStatus statu
 
 void ContextPrivate::handleClientRequestTimeout(uint64_t requestId)
 {
-    completeClientRequest(requestId, RpcRequestStatus::DeadlineExceeded);
+    completeClientRequest(requestId, RequestStatus::Timeout);
 }
 
 void ContextPrivate::handleServerSocket(uint64_t socketId, const ServerFunc &serverFunc)
@@ -383,19 +383,14 @@ void ContextPrivate::handleServerSocket(uint64_t socketId, const ServerFunc &ser
     }
 
     auto routerId = reader.routerId;
-    auto requestId = reader.read<uint64_t>();
-    auto requestMsg = std::move(reader.readMessage());
-    if (reader.hasMore()) {
-        std::cout << "Server socket recv invalid message." << std::endl;
-        return;
-    }
+    auto request = readRpcMessage(reader);
 
     auto *event = new ProcessRequestEvent;
-    event->requestId = requestId;
+    event->requestId = peekRequestId(request.header);
     event->serverSocketId = socketId;
     event->serverFunc = serverFunc;
     event->routerId = std::move(routerId);
-    event->requestMsg = std::move(requestMsg);
+    event->request = std::move(request);
     sendWorkerEvent(event);
 }
 
@@ -404,7 +399,7 @@ void ContextPrivate::handleSubSocket(uint64_t socketId, const SubFunc &subFunc)
     SocketdReader reader(*_subSockets[socketId]);
 
     auto *event = new SubTopicEvent;
-    event->topicMsg = std::move(reader.readMessage());
+    event->message = readRpcMessage(reader);
     event->subFunc = subFunc;
     sendWorkerEvent(event);
 }
@@ -452,7 +447,7 @@ void ContextPrivate::onConnectEvent(ConnectEvent *event, const std::string &rout
 void ContextPrivate::onDisconnectEvent(DisconnectEvent *event)
 {
     _poller->postCallback([this, socketId = event->socketId]{
-        failSocketPending(socketId, RpcRequestStatus::Disconnected);
+        failSocketPending(socketId, RequestStatus::Disconnected);
 
         auto sessionIter = _clientSessions.find(socketId);
         if (sessionIter == _clientSessions.end())
@@ -478,14 +473,14 @@ void ContextPrivate::onSendRequestEvent(SendRequestEvent *event)
         && !sessionIter->second.connected;
     if (disconnected || sessionIter == _clientSessions.end() || !sessionIter->second.socket) {
         auto *reply = new ProcessReplyEvent;
-        reply->status = RpcRequestStatus::Disconnected;
+        reply->status = RequestStatus::Disconnected;
         reply->clientFunc = std::move(event->clientFunc);
         sendWorkerEvent(reply);
         return;
     }
 
     auto &session = sessionIter->second;
-    const uint64_t requestId = generateRequestId();
+    const uint64_t requestId = peekRequestId(event->request.header);
     _clientRequests.emplace(requestId, ClientRequest{event->clientSocketId, std::move(event->clientFunc)});
     session.pendingRequests.insert(requestId);
 
@@ -496,13 +491,12 @@ void ContextPrivate::onSendRequestEvent(SendRequestEvent *event)
     }
 
     DealerWriter writer(*session.socket);
-    writer.write(requestId);
-    writer.writeMessage(event->requestMsg, 0);
+    writeRpcMessage(writer, event->request);
 }
 
 void ContextPrivate::onProcessReplyEvent(ProcessReplyEvent *event)
 {
-    event->clientFunc(event->status, event->replyMsg);
+    event->clientFunc(event->status, event->reply);
 }
 
 void ContextPrivate::onBindEvent(BindEvent *event, const std::string &routerId)
@@ -530,15 +524,15 @@ void ContextPrivate::onUnbindEvent(UnbindEvent *event)
 
 void ContextPrivate::onProcessRequestEvent(ProcessRequestEvent *event)
 {
-    zmq::message_t replyMsg;
-    event->serverFunc(event->requestMsg, replyMsg);
+    RpcMessage reply;
+    event->serverFunc(event->request, reply);
 
     std::lock_guard<std::mutex> locker(_frontendMutex);
     auto *replyEvent = new SendReplyEvent;
     replyEvent->requestId = event->requestId;
     replyEvent->serverSocketId = event->serverSocketId;
     replyEvent->routerId = std::move(event->routerId);
-    replyEvent->replyMsg = std::move(replyMsg);
+    replyEvent->reply = std::move(reply);
     DealerWriter(_frontend).writePtr(replyEvent, 0);
 }
 
@@ -549,8 +543,7 @@ void ContextPrivate::onSendReplyEvent(SendReplyEvent *event)
         return;
 
     RouterWriter writer(*socketIter->second, event->routerId);
-    writer.write(event->requestId);
-    writer.writeMessage(event->replyMsg, 0);
+    writeRpcMessage(writer, event->reply);
 }
 
 void ContextPrivate::onAddPubEvent(AddPubEvent *event, const std::string &routerId)
@@ -598,13 +591,13 @@ void ContextPrivate::onRemoveSubEvent(RemoveSubEvent *event)
 void ContextPrivate::onPubTopicEvent(PubTopicEvent *event)
 {
     SocketWriter writer(*_pubSockets[event->socketId]);
-    writer.writeMessage(event->topicMsg, 0);
+    writeRpcMessage(writer, event->message);
 }
 
 void ContextPrivate::onSubTopicEvent(SubTopicEvent *event)
 {
     if (event->subFunc)
-        event->subFunc(event->topicMsg);
+        event->subFunc(event->message);
 }
 
 void ContextPrivate::onQuitEvent()

@@ -3,8 +3,10 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "Call.h"
 #include "Context.h"
 #include "zrpc_global.h"
 
@@ -17,7 +19,7 @@ public:
     ~Publisher();
 
     void bind(const std::string &addr);
-    void pubTopic(const std::string &topic, std::string &&data);
+    void pubTopic(const std::string &topic, Payload &&data);
 
 private:
     PublisherPrivate *_d{};
@@ -30,7 +32,7 @@ public:
     Subscriber(const std::vector<std::string> &topics, const std::shared_ptr<Context> &ctx);
     ~Subscriber();
 
-    using TopicCallback = std::function<void(const std::string&, const std::string&)>;
+    using TopicCallback = std::function<void(std::string_view topic, PayloadView payload)>;
     void setCallback(const TopicCallback &cb);
     void connect(const std::string &addr);
 

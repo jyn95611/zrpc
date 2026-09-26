@@ -3,6 +3,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <cstdlib>
 
 #include "zrpc/Context.h"
@@ -28,6 +29,11 @@ private:
     std::chrono::steady_clock::time_point _start;
 };
 
+std::string_view firstPart(const zrpc::CallResult &result)
+{
+    return result.payload.views.empty() ? std::string_view{} : result.payload.views[0];
+}
+
 void client_func()
 {
     auto context = std::make_shared<zrpc::Context>();
@@ -44,7 +50,6 @@ void client_func()
 
         std::string serviceName;
         std::string methodName;
-        std::string request = "World" + std::to_string(i);
         if (i % 2 == 0) {
             serviceName = "GreeterService1";
             methodName = "sayHello";
@@ -53,13 +58,14 @@ void client_func()
             methodName = "sayHi";
         }
 
-        auto result = stub1.callMethod(serviceName, methodName, request);
+        auto result = stub1.callMethod(serviceName, methodName,
+                                      zrpc::Payload{"World" + std::to_string(i)});
 
         if (result.ok()) {
-            std::cout << "Client recv: " << result.reply << std::endl;
+            std::cout << "Client recv: " << firstPart(result) << std::endl;
         } else {
-            std::cout << "Client recv error: " << static_cast<int>(result.code) << std::endl;
-            std::cout << "Client recv error message: " << result.message << std::endl;
+            std::cout << "Client recv error: " << static_cast<int>(result.errorCode) << std::endl;
+            std::cout << "Client recv error message: " << result.errorMsg << std::endl;
         }
     }
 
@@ -86,7 +92,6 @@ void client_func2()
 
         std::string serviceName;
         std::string methodName;
-        std::string request = "World" + std::to_string(i);
         zrpc::Stub *stub = nullptr;
         if (i % 2 == 0) {
             serviceName = "GreeterService1";
@@ -98,13 +103,14 @@ void client_func2()
             stub = &stub2;
         }
 
-        auto result = stub->callMethod(serviceName, methodName, request);
+        auto result = stub->callMethod(serviceName, methodName,
+                                      zrpc::Payload{"World" + std::to_string(i)});
 
         if (result.ok()) {
-            std::cout << "Client recv: " << result.reply << std::endl;
+            std::cout << "Client recv: " << firstPart(result) << std::endl;
         } else {
-            std::cout << "Client recv error: " << static_cast<int>(result.code) << std::endl;
-            std::cout << "Client recv error message: " << result.message << std::endl;
+            std::cout << "Client recv error: " << static_cast<int>(result.errorCode) << std::endl;
+            std::cout << "Client recv error message: " << result.errorMsg << std::endl;
         }
     }
 
@@ -128,13 +134,14 @@ void client_func3()
 
     for (int i = 0; i < 10; ++i) {
         StopWatch watch;
-        auto result = stub.callMethod(serviceName, methodName, request);
+        auto result = stub.callMethod(serviceName, methodName, zrpc::Payload{std::move(request)});
+        request = "cloudType";
 
         if (result.ok()) {
-            (void)result.reply.size();
+            (void)firstPart(result).size();
         } else {
-            std::cout << "Client recv error: " << static_cast<int>(result.code) << std::endl;
-            std::cout << "Client recv error message: " << result.message << std::endl;
+            std::cout << "Client recv error: " << static_cast<int>(result.errorCode) << std::endl;
+            std::cout << "Client recv error message: " << result.errorMsg << std::endl;
         }
         std::cout << "Get cloud elapsed(ms): " << watch.elapsed() << std::endl;
     }
@@ -157,13 +164,14 @@ void client_func4()
 
     for (int i = 0; i < 10; ++i) {
         StopWatch watch;
-        auto result = stub.callMethod(serviceName, methodName, request);
+        auto result = stub.callMethod(serviceName, methodName, zrpc::Payload{std::move(request)});
+        request.assign(100 * 10000 * 24, 'a');
 
         if (result.ok()) {
-            (void)std::atoi(result.reply.c_str());
+            (void)std::atoi(std::string(firstPart(result)).c_str());
         } else {
-            std::cout << "Client recv error: " << static_cast<int>(result.code) << std::endl;
-            std::cout << "Client recv error message: " << result.message << std::endl;
+            std::cout << "Client recv error: " << static_cast<int>(result.errorCode) << std::endl;
+            std::cout << "Client recv error message: " << result.errorMsg << std::endl;
         }
         std::cout << "Get cloud elapsed(ms): " << watch.elapsed() << std::endl;
     }
@@ -179,17 +187,16 @@ void client_func_async()
 
     zrpc::Stub stub(channel);
 
-    std::string request = "World";
-    auto handle = stub.callMethodAsync("GreeterService1", "sayHello", request,
+    auto handle = stub.callMethodAsync("GreeterService1", "sayHello", zrpc::Payload{"World"},
         {}, [](zrpc::CallResult result) {
             if (result.ok()) {
-                std::cout << "Async recv: " << result.reply << std::endl;
+                std::cout << "Async recv: " << firstPart(result) << std::endl;
             }
         });
     if (handle) {
         auto result = handle->get();
         if (result.ok()) {
-            std::cout << "Sync wait recv: " << result.reply << std::endl;
+            std::cout << "Sync wait recv: " << firstPart(result) << std::endl;
         }
     }
 }

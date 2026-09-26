@@ -2,10 +2,10 @@
 
 #include <cstring>
 
+#include "utils.h"
+
 namespace zrpc {
 namespace {
-constexpr uint32_t kMaxWireStringLen = 64u * 1024u * 1024u;
-
 size_t encodedStringSize(const std::string &str)
 {
     return sizeof(uint32_t) + str.size();
@@ -29,6 +29,12 @@ char *writeInt(char *p, int v)
     return p + sizeof(v);
 }
 
+char *writeU64(char *p, uint64_t v)
+{
+    std::memcpy(p, &v, sizeof(v));
+    return p + sizeof(v);
+}
+
 bool readString(const char *&p, const char *end, std::string &str)
 {
     if (static_cast<size_t>(end - p) < sizeof(uint32_t)) {
@@ -44,7 +50,7 @@ bool readString(const char *&p, const char *end, std::string &str)
         return true;
     }
 
-    if (len > kMaxWireStringLen || static_cast<size_t>(end - p) < len) {
+    if (len > kMaxPartBytes || static_cast<size_t>(end - p) < len) {
         return false;
     }
 
@@ -61,6 +67,17 @@ bool readInt(const char *&p, const char *end, int &v)
 
     std::memcpy(&v, p, sizeof(v));
     p += sizeof(int);
+    return true;
+}
+
+bool readU64(const char *&p, const char *end, uint64_t &v)
+{
+    if (static_cast<size_t>(end - p) < sizeof(uint64_t)) {
+        return false;
+    }
+
+    std::memcpy(&v, p, sizeof(v));
+    p += sizeof(uint64_t);
     return true;
 }
 
@@ -84,63 +101,174 @@ bool deserializeMessage(zmq::message_t &msg, Fn &&readFields)
     return p == end;
 }
 
+void drainRemaining(SocketdReader &reader)
+{
+    while (reader.hasMore()) {
+        reader.readMessage();
+    }
+}
+
 } // namespace
 
-zmq::message_t RpcRequest::serialize()
+uint64_t peekRequestId(const zmq::message_t &header)
 {
-    const size_t total = encodedStringSize(serviceName)
-                       + encodedStringSize(methodName)
-                       + encodedStringSize(data);
+    if (header.size() < sizeof(uint64_t)) {
+        return 0;
+    }
+    uint64_t requestId = 0;
+    std::memcpy(&requestId, header.data(), sizeof(requestId));
+    return requestId;
+}
+
+zmq::message_t takeMessage(std::string &&s)
+{
+    if (s.empty()) {
+        return {};
+    }
+    if (s.size() <= kZeroCopyThreshold) {
+        zmq::message_t msg(s.size());
+        std::memcpy(msg.data(), s.data(), s.size());
+        return msg;
+    }
+    auto *owned = new std::string(std::move(s));
+    return zmq::message_t(owned->data(), owned->size(),
+                          [](void *, void *hint) {
+                              delete static_cast<std::string *>(hint);
+                          },
+                          owned);
+}
+
+std::vector<zmq::message_t> takePayload(Payload &&payload)
+{
+    std::vector<zmq::message_t> parts;
+    parts.reserve(payload.size());
+    for (auto &s : payload) {
+        parts.push_back(takeMessage(std::move(s)));
+    }
+    return parts;
+}
+
+std::string_view viewMessage(const zmq::message_t &msg)
+{
+    return {static_cast<const char *>(msg.data()), msg.size()};
+}
+
+PayloadView viewPayload(const RpcMessage &msg, std::shared_ptr<void> owned)
+{
+    PayloadView out;
+    out.owned = std::move(owned);
+    out.views.reserve(msg.parts.size());
+    for (const auto &part : msg.parts) {
+        out.views.push_back(viewMessage(part));
+    }
+    return out;
+}
+
+void writeRpcMessage(SocketWriter &writer, RpcMessage &msg)
+{
+    const int headerFlags = msg.parts.empty() ? 0 : ZMQ_SNDMORE;
+    writer.writeMessage(msg.header, headerFlags);
+    for (size_t i = 0; i < msg.parts.size(); ++i) {
+        const int flags = (i + 1 == msg.parts.size()) ? 0 : ZMQ_SNDMORE;
+        writer.writeMessage(msg.parts[i], flags);
+    }
+}
+
+RpcMessage readRpcMessage(SocketdReader &reader)
+{
+    RpcMessage msg;
+    msg.header = reader.readMessage();
+    if (msg.header.size() > kMaxPartBytes) {
+        msg.valid = false;
+        drainRemaining(reader);
+        return msg;
+    }
+
+    while (reader.hasMore()) {
+        auto part = reader.readMessage();
+        if (!msg.valid) {
+            continue;
+        }
+        if (msg.parts.size() >= kMaxPartCount || part.size() > kMaxPartBytes) {
+            msg.valid = false;
+            msg.parts.clear();
+            continue;
+        }
+        msg.parts.push_back(std::move(part));
+    }
+    return msg;
+}
+
+RpcMessage errorReply(ErrorCode code, uint64_t requestId, std::string errorMsg)
+{
+    RpcMessage msg;
+    msg.header = RpcReplyHeader(requestId, code, std::move(errorMsg)).serialize();
+    return msg;
+}
+
+RpcRequestHeader::RpcRequestHeader(uint64_t requestId, std::string serviceName, std::string methodName)
+    : requestId(requestId),
+      serviceName(std::move(serviceName)),
+      methodName(std::move(methodName))
+{
+}
+
+zmq::message_t RpcRequestHeader::serialize() const
+{
+    const size_t total = sizeof(uint64_t)
+                       + encodedStringSize(serviceName)
+                       + encodedStringSize(methodName);
     return serializeMessage(total, [&](char *p) {
+        p = writeU64(p, requestId);
         p = writeString(p, serviceName);
-        p = writeString(p, methodName);
-        writeString(p, data);
+        writeString(p, methodName);
     });
 }
 
-bool RpcRequest::deserialize(zmq::message_t &msg)
+std::optional<RpcRequestHeader> RpcRequestHeader::deserialize(zmq::message_t &msg)
 {
-    return deserializeMessage(msg, [&](const char *&p, const char *end) {
-        return readString(p, end, serviceName)
-            && readString(p, end, methodName)
-            && readString(p, end, data);
-    });
+    uint64_t requestId = 0;
+    std::string serviceName;
+    std::string methodName;
+    if (!deserializeMessage(msg, [&](const char *&p, const char *end) {
+            return readU64(p, end, requestId)
+                && readString(p, end, serviceName)
+                && readString(p, end, methodName);
+        })) {
+        return std::nullopt;
+    }
+    return RpcRequestHeader(requestId, std::move(serviceName), std::move(methodName));
 }
 
-zmq::message_t RpcReply::serialize()
+RpcReplyHeader::RpcReplyHeader(uint64_t requestId, ErrorCode errorCode, std::string errorMsg)
+    : requestId(requestId),
+      errorCode(errorCode),
+      errorMsg(std::move(errorMsg))
 {
-    const size_t total = sizeof(int)
-                       + encodedStringSize(errorMsg)
-                       + encodedStringSize(data);
+}
+
+zmq::message_t RpcReplyHeader::serialize() const
+{
+    const size_t total = sizeof(uint64_t) + sizeof(int) + encodedStringSize(errorMsg);
     return serializeMessage(total, [&](char *p) {
-        p = writeInt(p, errorCode);
-        p = writeString(p, errorMsg);
-        writeString(p, data);
+        p = writeU64(p, requestId);
+        p = writeInt(p, static_cast<int>(errorCode));
+        writeString(p, errorMsg);
     });
 }
 
-bool RpcReply::deserialize(zmq::message_t &msg)
+std::optional<RpcReplyHeader> RpcReplyHeader::deserialize(zmq::message_t &msg)
 {
-    return deserializeMessage(msg, [&](const char *&p, const char *end) {
-        return readInt(p, end, errorCode)
-            && readString(p, end, errorMsg)
-            && readString(p, end, data);
-    });
-}
-
-zmq::message_t RpcTopic::serialize()
-{
-    const size_t total = encodedStringSize(topic) + encodedStringSize(data);
-    return serializeMessage(total, [&](char *p) {
-        p = writeString(p, topic);
-        writeString(p, data);
-    });
-}
-
-bool RpcTopic::deserialize(zmq::message_t &msg)
-{
-    return deserializeMessage(msg, [&](const char *&p, const char *end) {
-        return readString(p, end, topic) && readString(p, end, data);
-    });
+    uint64_t requestId = 0;
+    int errorCode = 0;
+    std::string errorMsg;
+    if (!deserializeMessage(msg, [&](const char *&p, const char *end) {
+            return readU64(p, end, requestId)
+                && readInt(p, end, errorCode)
+                && readString(p, end, errorMsg);
+        })) {
+        return std::nullopt;
+    }
+    return RpcReplyHeader(requestId, static_cast<ErrorCode>(errorCode), std::move(errorMsg));
 }
 }

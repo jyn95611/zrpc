@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
         const auto index = arc4random() % 3;
         const auto &topic = topics[index].first;
         auto data = topics[index].second;
-        publisher.pubTopic(topics[index].first, std::move(data));
+        publisher.pubTopic(topics[index].first, zrpc::Payload{std::move(data)});
         std::cout << "Pub topic: " << topic << std::endl;
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }

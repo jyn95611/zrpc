@@ -1,17 +1,29 @@
 #pragma once
 
-#include <vector>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
-#include <memory>
-#include <thread>
-#include <mutex>
+#include <vector>
 #include <zmq.hpp>
 
 #include "Event.h"
 #include "Poller.h"
 
 namespace zrpc {
+class Context;
+class ContextPrivate;
+
+namespace detail {
+struct ContextAccess
+{
+    static ContextPrivate *get(Context *ctx);
+    static ContextPrivate *get(const std::shared_ptr<Context> &ctx) { return get(ctx.get()); }
+};
+}
+
 class ContextPrivate
 {
 public:
@@ -31,7 +43,7 @@ public:
     void removeSub(uint64_t socketId);
 
     uint64_t generateSocketId();
-    uint64_t generateRequestId();
+    uint64_t nextRequestId();
 
     void quit();
     void wait();
@@ -48,9 +60,9 @@ public:
     void handleServerSocket(uint64_t socketId, const ServerFunc &serverFunc);
     void handleSubSocket(uint64_t socketId, const SubFunc &subFunc);
 
-    void completeClientRequest(uint64_t requestId, RpcRequestStatus status,
-                               zmq::message_t replyMsg = {});
-    void failSocketPending(uint64_t socketId, RpcRequestStatus status);
+    void completeClientRequest(uint64_t requestId, RequestStatus status,
+                               RpcMessage reply = {});
+    void failSocketPending(uint64_t socketId, RequestStatus status);
 
     void sendWorkerEvent(Event *event);
 
@@ -100,7 +112,7 @@ private:
         ClientFunc func;
     };
 
-    uint64_t _lastRequestId{0};
+    std::atomic<uint64_t> _lastRequestId{0};
     uint64_t _lastSocketId{0};
     std::unordered_map<uint64_t, std::unique_ptr<zmq::socket_t>> _serverSockets;
     std::unordered_map<uint64_t, ClientSession> _clientSessions;

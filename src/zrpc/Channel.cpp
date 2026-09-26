@@ -1,5 +1,4 @@
 #include "utils.h"
-#include "ContextAccess.h"
 #include "ContextPrivate.h"
 #include "Context.h"
 #include "Message.h"
@@ -47,30 +46,39 @@ std::shared_ptr<Context> Channel::context() const { return _d->ctx; }
 uint64_t Channel::socketId() const { return _d->socketId; }
 
 namespace {
-CallResult buildCallResult(RpcRequestStatus status, zmq::message_t &replyMsg)
+CallResult buildCallResult(RequestStatus status, RpcMessage &reply)
 {
-    if (status == RpcRequestStatus::DeadlineExceeded) {
+    if (status == RequestStatus::Timeout) {
         return {ErrorCode::Timeout, "timeout", {}};
     }
 
-    if (status == RpcRequestStatus::Disconnected) {
+    if (status == RequestStatus::Disconnected) {
         return {ErrorCode::Disconnected, "peer disconnected", {}};
     }
 
-    if (status != RpcRequestStatus::Done) {
+    if (status != RequestStatus::Replied) {
         return {ErrorCode::InvalidMessage, "invalid request status", {}};
     }
 
-    RpcReply rpcReply;
-    if (!rpcReply.deserialize(replyMsg)) {
-        return {ErrorCode::InvalidMessage, "", {}};
+    if (!reply.valid) {
+        return {ErrorCode::InvalidMessage,
+                "invalid reply message: header/part exceeds max size or too many parts", {}};
     }
 
-    if (rpcReply.errorCode != 0) {
-        return {static_cast<ErrorCode>(rpcReply.errorCode), rpcReply.errorMsg, {}};
+    const auto header = RpcReplyHeader::deserialize(reply.header);
+    if (!header) {
+        return {ErrorCode::InvalidMessage, "invalid reply header", {}};
     }
 
-    return {ErrorCode::Ok, {}, std::move(rpcReply.data)};
+    if (header->errorCode != ErrorCode::Ok) {
+        return {header->errorCode, header->errorMsg, {}};
+    }
+
+    auto owned = std::make_shared<RpcMessage>(std::move(reply));
+    CallResult result;
+    result.errorCode = ErrorCode::Ok;
+    result.payload = viewPayload(*owned, owned);
+    return result;
 }
 }
 
@@ -88,7 +96,7 @@ public:
 
     std::shared_ptr<CallHandle> call(const std::string &serviceName,
                                      const std::string &methodName,
-                                     std::string &request,
+                                     Payload &&request,
                                      const CallOptions &opts,
                                      CompletionCallback onComplete)
     {
@@ -96,10 +104,8 @@ public:
             return nullptr;
         }
 
-        RpcRequest rpcRequest;
-        rpcRequest.serviceName = serviceName;
-        rpcRequest.methodName = methodName;
-        rpcRequest.data = std::move(request);
+        const uint64_t requestId =
+            detail::ContextAccess::get(channel->context())->nextRequestId();
 
         auto handle = std::make_shared<CallHandle>();
         _currentCall = handle;
@@ -107,10 +113,11 @@ public:
         auto *event = new SendRequestEvent;
         event->clientSocketId = channel->socketId();
         event->timeoutMs = opts.timeoutMs;
-        event->requestMsg = rpcRequest.serialize();
+        event->request.header = RpcRequestHeader(requestId, serviceName, methodName).serialize();
+        event->request.parts = takePayload(std::move(request));
         event->clientFunc = [handle, onComplete = std::move(onComplete), this](
-                                RpcRequestStatus status, zmq::message_t &replyMsg) {
-            CallResult result = buildCallResult(status, replyMsg);
+                                RequestStatus status, RpcMessage &reply) {
+            CallResult result = buildCallResult(status, reply);
             handle->complete(result);
             if (onComplete) {
                 onComplete(result);
@@ -138,9 +145,9 @@ Stub::~Stub()
 }
 
 CallResult Stub::callMethod(const std::string &serviceName, const std::string &methodName,
-                            std::string &request, const CallOptions &opts)
+                            Payload &&request, const CallOptions &opts)
 {
-    auto handle = _d->call(serviceName, methodName, request, opts, {});
+    auto handle = _d->call(serviceName, methodName, std::move(request), opts, {});
     if (!handle) {
         return {ErrorCode::CallInProcess, "call in progress", {}};
     }
@@ -149,10 +156,10 @@ CallResult Stub::callMethod(const std::string &serviceName, const std::string &m
 
 std::shared_ptr<CallHandle> Stub::callMethodAsync(const std::string &serviceName,
                                                   const std::string &methodName,
-                                                  std::string &request,
+                                                  Payload &&request,
                                                   const CallOptions &opts,
                                                   CompletionCallback onComplete)
 {
-    return _d->call(serviceName, methodName, request, opts, std::move(onComplete));
+    return _d->call(serviceName, methodName, std::move(request), opts, std::move(onComplete));
 }
 }

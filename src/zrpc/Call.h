@@ -3,8 +3,11 @@
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "zrpc_global.h"
 
@@ -22,6 +25,14 @@ enum class ErrorCode
     MethodNotImplemented,
 };
 
+using Payload = std::vector<std::string>;
+
+struct PayloadView
+{
+    std::vector<std::string_view> views;
+    std::shared_ptr<void> owned;
+};
+
 struct CallOptions
 {
     int64_t timeoutMs{-1};
@@ -29,11 +40,11 @@ struct CallOptions
 
 struct CallResult
 {
-    ErrorCode code{ErrorCode::Ok};
-    std::string message;
-    std::string reply;
+    ErrorCode errorCode{ErrorCode::Ok};
+    std::string errorMsg;
+    PayloadView payload;
 
-    bool ok() const { return code == ErrorCode::Ok; }
+    bool ok() const { return errorCode == ErrorCode::Ok; }
 };
 
 class StubPrivate;

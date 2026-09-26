@@ -46,8 +46,9 @@ class PerfService : public zrpc::Service
 public:
     PerfService() : zrpc::Service(kServiceName)
     {
-        addMethod(kMethodName, [](const std::string &request, std::string &reply) {
-            reply = request;
+        addMethod(kMethodName, [](const zrpc::PayloadView &request, zrpc::Payload &reply) {
+            if (!request.views.empty())
+                reply.emplace_back(request.views[0]);
         });
     }
 };
@@ -225,10 +226,10 @@ BenchmarkResult runBenchmark(zrpc::Stub &stub, const BenchmarkConfig &config)
 
     for (int i = 0; i < kWarmupIterations; ++i) {
         payload.assign(config.payloadSize, 'x');
-        auto result = stub.callMethod(kServiceName, kMethodName, payload);
+        auto result = stub.callMethod(kServiceName, kMethodName, zrpc::Payload{std::move(payload)});
         if (!result.ok()) {
             std::cerr << "[" << config.label << "] warmup failed: "
-                      << static_cast<int>(result.code) << " " << result.message << std::endl;
+                      << static_cast<int>(result.errorCode) << " " << result.errorMsg << std::endl;
             return benchResult;
         }
     }
@@ -236,16 +237,17 @@ BenchmarkResult runBenchmark(zrpc::Stub &stub, const BenchmarkConfig &config)
     for (int i = 0; i < config.iterations; ++i) {
         payload.assign(config.payloadSize, 'x');
         watch.restart();
-        auto result = stub.callMethod(kServiceName, kMethodName, payload);
+        auto result = stub.callMethod(kServiceName, kMethodName, zrpc::Payload{std::move(payload)});
         samples.push_back(watch.elapsedUs());
 
         if (!result.ok()) {
             std::cerr << "[" << config.label << "] benchmark failed at iteration " << i << ": "
-                      << static_cast<int>(result.code) << " " << result.message << std::endl;
+                      << static_cast<int>(result.errorCode) << " " << result.errorMsg << std::endl;
             break;
         }
-        if (result.reply.size() != config.payloadSize) {
-            std::cerr << "[" << config.label << "] unexpected reply size: " << result.reply.size()
+        const auto replySize = result.payload.views.empty() ? 0 : result.payload.views[0].size();
+        if (replySize != config.payloadSize) {
+            std::cerr << "[" << config.label << "] unexpected reply size: " << replySize
                       << ", expected: " << config.payloadSize << std::endl;
             break;
         }
