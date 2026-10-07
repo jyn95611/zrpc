@@ -1,0 +1,22 @@
+option(ZRPC_BUILD_TESTS "Build unit tests" ON)
+option(ZRPC_BUILD_EXAMPLES "Build example programs" ON)
+
+if(NOT DEFINED CMAKE_DEBUG_POSTFIX)
+    set(CMAKE_DEBUG_POSTFIX _debug)
+endif()
+
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/install)
+set(ZRPC_CONFIG_DIR $<IF:$<CONFIG:Debug>,debug,release>)
+set(CMAKE_INSTALL_LIBDIR lib/${ZRPC_CONFIG_DIR})
+set(CMAKE_INSTALL_BINDIR bin/${ZRPC_CONFIG_DIR})
+
+if(APPLE)
+    set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../../${CMAKE_INSTALL_LIBDIR}")
+elseif(UNIX)
+    set(CMAKE_INSTALL_RPATH "\$ORIGIN;\$ORIGIN/../../${CMAKE_INSTALL_LIBDIR}")
+endif()
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)

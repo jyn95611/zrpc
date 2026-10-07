@@ -1,0 +1,12 @@
+function(zrpc_add_example name)
+    add_executable(${name} ${name}.cpp)
+    set_target_properties(${name} PROPERTIES DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX})
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(${name} PRIVATE zrpc)
+    install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endfunction()
+
+zrpc_add_example(rpc_client)
+zrpc_add_example(rpc_server)
+zrpc_add_example(topic_pub)
+zrpc_add_example(topic_sub)

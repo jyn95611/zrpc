@@ -1,0 +1,33 @@
+# Local benchmarks (not part of the library)
+bench/
+
+# Build
+build/
+cmake-build-*/
+out/
+install/
+
+# Artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.exp
+*.pdb
+*.ilk
+
+# IDE / OS
+.cache/
+.vscode/
+!.vscode/extensions.json
+!.vscode/c_cpp_properties.json
+!.vscode/settings.json
+!.vscode/tasks.json
+*.code-workspace
+*.user
+.DS_Store
